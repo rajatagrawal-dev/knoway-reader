@@ -285,7 +285,11 @@ export default function App() {
 
   const createAndOpenDive = useCallback(
     (panel: DivePanel) => {
-      setPanels((prev) => [...prev, panel]);
+      // panelsRef is updated synchronously (not via the panels-syncing effect,
+      // which hasn't run yet) so the immediate sendDiveMessage call below can
+      // find this panel — it looks the panel up through the ref, not state.
+      panelsRef.current = [...panelsRef.current, panel];
+      setPanels(panelsRef.current);
       setDiveFocusId(panel.id);
       void sendDiveMessage(panel.id, openingMessage(panel.selection));
     },

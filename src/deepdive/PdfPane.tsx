@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   PdfHighlighter,
   PdfLoader,
@@ -48,10 +48,19 @@ export default function PdfPane({
 }: PdfPaneProps) {
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
 
+  // PDF.js transfers (detaches) the Uint8Array's underlying ArrayBuffer to its
+  // worker on load. PdfPane remounts whenever the app switches between the
+  // normal layout and the Deep Dive split view, so a clone is taken once per
+  // mount here — the original in App.tsx state is never touched and stays
+  // usable for the next remount.
+  const [stableSource] = useState<PdfSource>(() =>
+    source instanceof Uint8Array ? source.slice() : source,
+  );
+
   return (
     <div className="pdf-pane-viewer">
       <PdfLoader
-        document={source}
+        document={stableSource}
         workerSrc={pdfWorkerUrl}
         beforeLoad={() => <div className="loading">Loading PDF…</div>}
       >
