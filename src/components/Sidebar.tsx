@@ -61,10 +61,17 @@ export default function Sidebar({
                 scrolledToHighlightId === highlight.id ? " is-active" : ""
               }`}
             >
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 className="sidebar-item-main"
                 onClick={() => onJumpToHighlight(highlight)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onJumpToHighlight(highlight);
+                  }
+                }}
               >
                 <span className="sidebar-item-type-row">
                   <span className="sidebar-item-type">{highlight.type}</span>
@@ -81,7 +88,7 @@ export default function Sidebar({
                 {highlight.comment ? (
                   <span className="sidebar-item-comment">{highlight.comment}</span>
                 ) : null}
-              </button>
+              </div>
               <button
                 type="button"
                 className="sidebar-item-delete"
