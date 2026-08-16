@@ -123,6 +123,7 @@ export default function App() {
   // as `initialPage` so each remount reopens on the page the user was
   // actually reading instead of resetting to page 1.
   const [currentPage, setCurrentPage] = useState(1);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const highlighterUtilsRef = useRef<PdfHighlighterUtils | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -443,7 +444,7 @@ export default function App() {
           onPin={handlePin}
         />
       ) : (
-        <div className="workspace">
+        <div className={`workspace${sidebarCollapsed ? " workspace--sidebar-collapsed" : ""}`}>
           <Sidebar
             highlights={highlights}
             pins={pins}
@@ -455,6 +456,8 @@ export default function App() {
             onOpenDive={handleOpenDive}
             onDeletePin={handleDeletePin}
             onUploadNew={resetViewer}
+            collapsed={sidebarCollapsed}
+            onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
           />
 
           <main className="viewer">

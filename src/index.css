@@ -1,0 +1,50 @@
+/* Palette + type borrowed from the reference paper layout: a muted,
+   paper-like academic look (off-white surfaces, hairline rules, a subdued
+   navy link color) instead of a saturated SaaS blue. */
+:root {
+  --text: #1a1a1a;
+  --muted: #555555;
+  --rule: #222222;
+  --link: #2854a1;
+  --link-tint: #eef1f7;
+  --bg: #ffffff;
+  --panel-bg: #f7f7f5;
+  --border: #ddd;
+  --border-soft: #eee;
+  --border-strong: #ccc;
+  --danger: #9a2b2b;
+  --danger-tint: #f7ecec;
+  --font-serif:
+    Georgia,
+    "Times New Roman",
+    serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-serif);
+  color: var(--text);
+  background: var(--panel-bg);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

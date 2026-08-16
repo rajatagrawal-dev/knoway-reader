@@ -13,6 +13,8 @@ interface SidebarProps {
   onOpenDive: (divePanelId: string) => void;
   onDeletePin: (pinId: string) => void;
   onUploadNew: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
 function highlightLabel(highlight: CommentedHighlight): string {
@@ -33,11 +35,40 @@ export default function Sidebar({
   onOpenDive,
   onDeletePin,
   onUploadNew,
+  collapsed,
+  onToggleCollapsed,
 }: SidebarProps) {
+  if (collapsed) {
+    return (
+      <aside className="sidebar sidebar--collapsed">
+        <button
+          type="button"
+          className="sidebar-toggle"
+          onClick={onToggleCollapsed}
+          title="Show annotations"
+          aria-label="Show annotations"
+        >
+          ›
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="sidebar">
       <header className="sidebar-header">
-        <h2>Annotations</h2>
+        <div className="sidebar-header-row">
+          <h2>Annotations</h2>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={onToggleCollapsed}
+            title="Hide annotations"
+            aria-label="Hide annotations"
+          >
+            ‹
+          </button>
+        </div>
         <p className="sidebar-file">{fileName}</p>
         <p className="sidebar-count">
           {highlights.length} annotation{highlights.length === 1 ? "" : "s"}
