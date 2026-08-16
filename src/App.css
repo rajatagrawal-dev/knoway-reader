@@ -180,6 +180,12 @@
   height: 100%;
   min-height: 0;
   background: #525659;
+  /* .PdfHighlighter is `position: absolute; width: 100%`; without a
+     positioned ancestor here it sizes against the viewport instead of this
+     pane, which is invisible in the full-width normal view but overlaps the
+     neighboring pane once the split view makes this container narrower. */
+  position: relative;
+  overflow: hidden;
 }
 
 .loading {
@@ -275,9 +281,15 @@
 .dive-action-row button {
   border: 1px solid #d1d5db;
   background: #f9fafb;
+  color: #111827;
   border-radius: 0.5rem;
   padding: 0.35rem 0.6rem;
   font-size: 0.8rem;
+}
+
+.dive-action-row button:disabled {
+  color: #9ca3af;
+  cursor: default;
 }
 
 .dive-action-answer {
@@ -329,6 +341,41 @@
   font-size: 0.7rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* The highlight toolbar's other buttons (style/copy/comment/delete) are
+   fixed 26x26 icon slots on a dark pill; the dive badge shows text instead
+   of an icon, so it's restyled to match that context rather than the blue
+   pill used in the sidebar/selection popover. */
+.TextHighlight__toolbar .dive-badge,
+.AreaHighlight__toolbar .dive-badge {
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--rphp-radius-sm, 6px);
+  background: transparent;
+  color: #efece5;
+  font-size: 0.75rem;
+}
+
+.TextHighlight__toolbar .dive-badge:hover,
+.AreaHighlight__toolbar .dive-badge:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+/* The library sizes comment/style/copy/delete buttons as fixed 26x26 icon
+   slots, but this app's comment button shows the word "Comment"/"Note"
+   instead of an icon — without this, that text overflows the fixed box and
+   visually bleeds into whatever sits next to it in the toolbar (e.g. the
+   dive badge). */
+.TextHighlight__comment-button,
+.AreaHighlight__comment-button {
+  width: auto;
+  padding: 0 8px;
+  white-space: nowrap;
 }
 
 .sidebar-item-type-row {
@@ -418,13 +465,13 @@
   padding: 0.6rem 0.85rem;
   border-radius: 0.75rem;
   line-height: 1.5;
-  white-space: pre-wrap;
 }
 
 .dive-turn-user {
   align-self: flex-end;
   background: #2563eb;
   color: #ffffff;
+  white-space: pre-wrap;
 }
 
 .dive-turn-assistant {
@@ -435,6 +482,98 @@
 
 .dive-turn-streaming {
   opacity: 0.75;
+}
+
+.dive-turn > *:first-child {
+  margin-top: 0;
+}
+
+.dive-turn > *:last-child {
+  margin-bottom: 0;
+}
+
+.dive-turn p {
+  margin: 0 0 0.6em;
+}
+
+.dive-turn strong {
+  font-weight: 700;
+}
+
+.dive-turn ul,
+.dive-turn ol {
+  margin: 0.4em 0 0.6em;
+  padding-left: 1.4em;
+}
+
+.dive-turn li {
+  margin: 0.2em 0;
+}
+
+.dive-turn h1,
+.dive-turn h2,
+.dive-turn h3,
+.dive-turn h4 {
+  margin: 0.8em 0 0.4em;
+  line-height: 1.3;
+}
+
+.dive-turn h1 {
+  font-size: 1.15em;
+}
+
+.dive-turn h2 {
+  font-size: 1.08em;
+}
+
+.dive-turn h3 {
+  font-size: 1.02em;
+}
+
+.dive-turn code {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dive-turn pre {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 0.5rem;
+  padding: 0.6em 0.8em;
+  overflow-x: auto;
+  margin: 0.4em 0 0.6em;
+}
+
+.dive-turn pre code {
+  background: none;
+  padding: 0;
+}
+
+.dive-turn table {
+  border-collapse: collapse;
+  margin: 0.4em 0 0.6em;
+  font-size: 0.9em;
+}
+
+.dive-turn th,
+.dive-turn td {
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+
+.dive-turn a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.dive-turn blockquote {
+  margin: 0.4em 0;
+  padding-left: 0.8em;
+  border-left: 3px solid rgba(0, 0, 0, 0.15);
+  opacity: 0.85;
 }
 
 .dive-turn-marker {

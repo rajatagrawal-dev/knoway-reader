@@ -1,4 +1,6 @@
-import { useRef, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { DivePanel } from "./types";
 import { childrenOf } from "./tree";
 import { useSelectionCapture } from "./useSelectionCapture";
@@ -14,26 +16,26 @@ export interface DivePanelPaneProps {
   onPin: (selection: string, contextText: string) => void;
 }
 
-// Wraps any substring of `content` matching one of `children`'s `selection`
-// in a clickable marker. Matches are found independently per child, sorted
-// by position, and overlapping matches are dropped (first match wins) —
+// Wraps any substring of `text` matching one of `children`'s `selection` in a
+// clickable marker. Matches are found independently per child, sorted by
+// position, and overlapping matches are dropped (first match wins) —
 // approximate on purpose: this is a self-use app, not a rich-text editor.
-function renderTurnContent(
-  content: string,
+function wrapMarkersInText(
+  text: string,
   children: DivePanel[],
   onOpenDive: (panelId: string) => void,
 ): ReactNode {
-  if (children.length === 0) return content;
+  if (children.length === 0) return text;
 
   const matches: { start: number; end: number; panel: DivePanel }[] = [];
   for (const child of children) {
     if (!child.selection) continue;
-    const start = content.indexOf(child.selection);
+    const start = text.indexOf(child.selection);
     if (start !== -1) {
       matches.push({ start, end: start + child.selection.length, panel: child });
     }
   }
-  if (matches.length === 0) return content;
+  if (matches.length === 0) return text;
 
   matches.sort((a, b) => a.start - b.start);
   const nonOverlapping: typeof matches = [];
@@ -47,7 +49,7 @@ function renderTurnContent(
   const nodes: ReactNode[] = [];
   let pos = 0;
   nonOverlapping.forEach((match, index) => {
-    if (match.start > pos) nodes.push(content.slice(pos, match.start));
+    if (match.start > pos) nodes.push(text.slice(pos, match.start));
     nodes.push(
       <button
         type="button"
@@ -58,13 +60,55 @@ function renderTurnContent(
           onOpenDive(match.panel.id);
         }}
       >
-        {content.slice(match.start, match.end)}
+        {text.slice(match.start, match.end)}
       </button>,
     );
     pos = match.end;
   });
-  if (pos < content.length) nodes.push(content.slice(pos));
+  if (pos < text.length) nodes.push(text.slice(pos));
   return nodes;
+}
+
+// Applies wrapMarkersInText to the plain-string children of a rendered
+// markdown element, leaving already-formatted children (e.g. <strong>,
+// <code>) untouched — matches rarely straddle inline-formatting boundaries.
+function wrapMarkerChildren(
+  node: ReactNode,
+  children: DivePanel[],
+  onOpenDive: (panelId: string) => void,
+): ReactNode {
+  if (typeof node === "string") return wrapMarkersInText(node, children, onOpenDive);
+  if (Array.isArray(node)) {
+    return node.map((child, index) => (
+      <Fragment key={index}>{wrapMarkerChildren(child, children, onOpenDive)}</Fragment>
+    ));
+  }
+  return node;
+}
+
+function markdownComponents(children: DivePanel[], onOpenDive: (panelId: string) => void): Components {
+  const wrap = (node: ReactNode) => wrapMarkerChildren(node, children, onOpenDive);
+  return {
+    p: ({ children: c }) => <p>{wrap(c)}</p>,
+    li: ({ children: c }) => <li>{wrap(c)}</li>,
+    h1: ({ children: c }) => <h1>{wrap(c)}</h1>,
+    h2: ({ children: c }) => <h2>{wrap(c)}</h2>,
+    h3: ({ children: c }) => <h3>{wrap(c)}</h3>,
+    td: ({ children: c }) => <td>{wrap(c)}</td>,
+    th: ({ children: c }) => <th>{wrap(c)}</th>,
+  };
+}
+
+function renderTurnContent(
+  content: string,
+  children: DivePanel[],
+  onOpenDive: (panelId: string) => void,
+): ReactNode {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents(children, onOpenDive)}>
+      {content}
+    </ReactMarkdown>
+  );
 }
 
 export default function DivePanelPane({
@@ -103,7 +147,7 @@ export default function DivePanelPane({
         ))}
         {pending ? (
           <div className="dive-turn dive-turn-assistant dive-turn-streaming">
-            {streamingReply || "…"}
+            {streamingReply ? renderTurnContent(streamingReply, children, onOpenDive) : "…"}
           </div>
         ) : null}
       </div>

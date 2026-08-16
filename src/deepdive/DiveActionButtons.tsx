@@ -35,7 +35,7 @@ export default function DiveActionButtons({
   return (
     <div className="dive-action-buttons">
       <div className="dive-action-row">
-        <button type="button" className="tip-button" onClick={onDiveDeeper}>
+        <button type="button" onClick={onDiveDeeper}>
           Dive deeper
         </button>
         <button type="button" onClick={handleQuickMeaning} disabled={loading}>

@@ -29,6 +29,8 @@ export interface PdfPaneProps {
   onDiveDeeper: (request: { highlight: GhostHighlight; contextText: string }) => void;
   onQuickMeaning: (selection: string, contextText: string) => Promise<string>;
   onPin: (selection: string, contextText: string) => void;
+  initialPage?: number;
+  onPageChange?: (pageNumber: number) => void;
 }
 
 export default function PdfPane({
@@ -45,6 +47,8 @@ export default function PdfPane({
   onDiveDeeper,
   onQuickMeaning,
   onPin,
+  initialPage,
+  onPageChange,
 }: PdfPaneProps) {
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
 
@@ -74,6 +78,8 @@ export default function PdfPane({
               areaSelectionMode={areaMode}
               enableFreetextCreation={() => freetextMode}
               onFreetextClick={onFreetextClick}
+              initialPage={initialPage}
+              onPageChange={onPageChange}
               selectionTip={
                 <ExpandableTip
                   addHighlight={addHighlight}

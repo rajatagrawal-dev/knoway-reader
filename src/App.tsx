@@ -118,6 +118,11 @@ export default function App() {
     null,
   );
   const [exporting, setExporting] = useState(false);
+  // PdfPane remounts a fresh PdfHighlighter whenever the app switches between
+  // the normal layout and the Deep Dive split view; this is threaded through
+  // as `initialPage` so each remount reopens on the page the user was
+  // actually reading instead of resetting to page 1.
+  const [currentPage, setCurrentPage] = useState(1);
 
   const highlighterUtilsRef = useRef<PdfHighlighterUtils | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -164,6 +169,7 @@ export default function App() {
       setAreaMode(false);
       setFreetextMode(false);
       setDiveFocusId(null);
+      setCurrentPage(1);
     };
     reader.onerror = () => {
       alert("Failed to read the PDF file.");
@@ -180,6 +186,7 @@ export default function App() {
     setAreaMode(false);
     setFreetextMode(false);
     setScrolledToHighlightId(null);
+    setCurrentPage(1);
   };
 
   const addHighlight = (highlight: GhostHighlight, comment: string) => {
@@ -372,6 +379,8 @@ export default function App() {
     onDiveDeeper: handleDiveDeeper,
     onQuickMeaning: handleQuickMeaning,
     onPin: handlePin,
+    initialPage: currentPage,
+    onPageChange: setCurrentPage,
   };
 
   return (
