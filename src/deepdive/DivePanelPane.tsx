@@ -93,6 +93,25 @@ function wrapMarkerChildren(
   return node;
 }
 
+// True when a paragraph's only meaningful content is a single KaTeX span —
+// i.e. the model wrote a standalone equation as inline math ($...$) in its
+// own paragraph rather than a display block ($$...$$). Both are meant to
+// read as "an equation on its own line," so this gets the same centered
+// treatment as a true display equation regardless of which delimiter the
+// model happened to use.
+function isSoleEquationParagraph(node: ReactNode): boolean {
+  const items = (Array.isArray(node) ? node : [node]).filter(
+    (item) => !(typeof item === "string" && item.trim() === ""),
+  );
+  if (items.length !== 1) return false;
+  const [only] = items;
+  return (
+    isValidElement<{ className?: string }>(only) &&
+    typeof only.props.className === "string" &&
+    only.props.className.split(" ").includes("katex")
+  );
+}
+
 // `components` is passed to every ReactMarkdown instance in this panel and
 // must stay referentially stable across renders — react-markdown's custom
 // component functions are compared by reference, so a fresh object here on
@@ -107,7 +126,9 @@ function useMarkdownComponents(
   return useMemo(() => {
     const wrap = (node: ReactNode) => wrapMarkerChildren(node, children, onOpenDive);
     return {
-      p: ({ children: c }) => <p>{wrap(c)}</p>,
+      p: ({ children: c }) => (
+        <p className={isSoleEquationParagraph(c) ? "dive-equation-line" : undefined}>{wrap(c)}</p>
+      ),
       li: ({ children: c }) => <li>{wrap(c)}</li>,
       h1: ({ children: c }) => <h1>{wrap(c)}</h1>,
       h2: ({ children: c }) => <h2>{wrap(c)}</h2>,

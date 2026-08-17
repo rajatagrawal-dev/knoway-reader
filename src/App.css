@@ -639,6 +639,15 @@
   font-size: 1.05em;
 }
 
+/* A paragraph that's just one equation (whether the model used $$...$$ or
+   a standalone $...$) reads as a display equation: its own centered line,
+   set off from the surrounding prose. */
+.dive-turn p.dive-equation-line {
+  text-align: center;
+  margin: 0.7em 0;
+  overflow-x: auto;
+}
+
 .dive-turn-marker {
   border: 0;
   background: transparent;
