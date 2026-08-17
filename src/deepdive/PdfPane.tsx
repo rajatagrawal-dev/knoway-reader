@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   PdfHighlighter,
   PdfLoader,
@@ -61,6 +61,39 @@ export default function PdfPane({
     source instanceof Uint8Array ? source.slice() : source,
   );
 
+  const highlighterUtilsRef = useRef<PdfHighlighterUtils | null>(null);
+
+  // The library's own initialPage mechanism "settles" once its internal
+  // currentPageNumber counter matches the target — but that counter is set
+  // synchronously inside scrollPageIntoView itself, before the actual
+  // scroll (which depends on every preceding page's real, measured height)
+  // has necessarily landed correctly. For a large/complex document, pages
+  // far from the initially-rendered window may still have placeholder
+  // height estimates when that ~2s settling window closes, so the jump can
+  // land well short of the target and get reported as "done" anyway.
+  // Re-issuing the same scroll command ourselves over a longer window gives
+  // pdf.js time to finish measuring the intervening pages and self-correct
+  // on a later call — cheap and harmless once we're already on the right
+  // page, since re-scrolling to the current page is a no-op.
+  useEffect(() => {
+    if (!initialPage || initialPage <= 1) return;
+    let cancelled = false;
+    const timeouts = [500, 1200, 2200, 3500, 5000, 7000].map((delay) =>
+      window.setTimeout(() => {
+        if (cancelled) return;
+        try {
+          highlighterUtilsRef.current?.getViewer()?.scrollPageIntoView({ pageNumber: initialPage });
+        } catch {
+          // best-effort correction; nothing to do if it throws
+        }
+      }, delay),
+    );
+    return () => {
+      cancelled = true;
+      timeouts.forEach(window.clearTimeout);
+    };
+  }, [initialPage]);
+
   return (
     <div className="pdf-pane-viewer">
       <PdfLoader
@@ -100,7 +133,10 @@ export default function PdfPane({
                   }}
                 />
               }
-              utilsRef={(utils) => utilsRef(utils)}
+              utilsRef={(utils) => {
+                highlighterUtilsRef.current = utils;
+                utilsRef(utils);
+              }}
               style={{ height: "100%" }}
             >
               <HighlightContainer
