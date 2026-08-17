@@ -8,6 +8,7 @@ import type { DivePanel } from "./types";
 import { childrenOf } from "./tree";
 import { useSelectionCapture } from "./useSelectionCapture";
 import SelectionPopover from "./SelectionPopover";
+import { normalizeMathNotation } from "./mathNotation";
 
 export interface DivePanelPaneProps {
   panel: DivePanel;
@@ -139,29 +140,6 @@ function useMarkdownComponents(
   }, [children, onOpenDive]);
 }
 
-// The model is instructed to wrap math in $...$/$$...$$ but doesn't always
-// comply for a one-off exponent mentioned mid-sentence (e.g. "e^(iφ)"). This
-// is a deterministic backstop: find base^exponent patterns that aren't
-// already inside math or code, and wrap just that piece as inline LaTeX so
-// KaTeX renders a real superscript regardless of what the model did.
-// Content is split on existing $$...$$, $...$, and `...` spans (kept
-// verbatim); the caret pattern is only rewritten in what's left over.
-const PROTECTED_SPAN = /(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|`[^`\n]+?`)/g;
-const CARET_EXPONENT = /([\p{L}\p{N}]+|\([^()\n]{1,40}\))\^(\([^()\n]{1,40}\)|[\p{L}\p{N}]{1,20})/gu;
-
-function autoWrapCaretExponents(markdown: string): string {
-  return markdown
-    .split(PROTECTED_SPAN)
-    .map((part, index) => {
-      if (index % 2 === 1) return part; // a protected math/code span — leave untouched
-      return part.replace(CARET_EXPONENT, (_match, base: string, exponent: string) => {
-        const clean = exponent.startsWith("(") ? exponent.slice(1, -1) : exponent;
-        return `$${base}^{${clean}}$`;
-      });
-    })
-    .join("");
-}
-
 function renderTurnContent(content: string, components: Components): ReactNode {
   return (
     <ReactMarkdown
@@ -169,7 +147,7 @@ function renderTurnContent(content: string, components: Components): ReactNode {
       rehypePlugins={[rehypeKatex]}
       components={components}
     >
-      {autoWrapCaretExponents(content)}
+      {normalizeMathNotation(content)}
     </ReactMarkdown>
   );
 }
