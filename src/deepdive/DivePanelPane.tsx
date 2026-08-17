@@ -144,7 +144,7 @@ function renderTurnContent(content: string, components: Components): ReactNode {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
-      rehypePlugins={[rehypeKatex]}
+      rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
       components={components}
     >
       {normalizeMathNotation(content)}

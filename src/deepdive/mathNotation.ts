@@ -173,7 +173,33 @@ export function promoteSubstantialInlineMath(markdown: string): string {
   });
 }
 
+// A single stray/mismatched $ (e.g. the model drops one character from a
+// closing $$, or uses $ as a literal currency sign) makes remark-math hunt
+// for the next available delimiter to pair it with — however far away that
+// is — swallowing everything in between into one nonsense "equation" that
+// KaTeX then fails to parse, rendering a huge garbled error block instead
+// of the rest of the message. Counting $$ and $ tokens (outside code
+// spans) catches this: either count coming out odd means something is
+// unpaired somewhere. There's no reliable way to know which one, so the
+// whole message's $ signs are escaped — degrading to plain, readable text
+// instead of risking a corrupted render.
+const DOLLAR_TOKEN = /(`[^`\n]*`|\$\$|\$)/g;
+
+function hasBalancedDollarDelimiters(markdown: string): boolean {
+  let doubleCount = 0;
+  let singleCount = 0;
+  for (const token of markdown.split(DOLLAR_TOKEN)) {
+    if (token === "$$") doubleCount++;
+    else if (token === "$") singleCount++;
+  }
+  return doubleCount % 2 === 0 && singleCount % 2 === 0;
+}
+
 export function normalizeMathNotation(markdown: string): string {
   const upgraded = promoteSubstantialInlineMath(markdown);
-  return autoWrapCaretExponents(promoteInlineEquations(upgraded));
+  const normalized = autoWrapCaretExponents(promoteInlineEquations(upgraded));
+  if (!hasBalancedDollarDelimiters(normalized)) {
+    return normalized.replace(/\$/g, "\\$");
+  }
+  return normalized;
 }

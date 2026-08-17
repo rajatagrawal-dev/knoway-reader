@@ -639,6 +639,14 @@
   font-size: 1.05em;
 }
 
+/* If a single equation still fails to parse despite the normalization
+   backstop, show it as plain text in the surrounding font rather than
+   KaTeX's jarring red error styling. */
+.dive-turn .katex-error {
+  color: inherit;
+  font-family: inherit;
+}
+
 /* A paragraph that's just one equation (whether the model used $$...$$ or
    a standalone $...$) reads as a display equation: its own centered line,
    set off from the surrounding prose. */
