@@ -33,6 +33,11 @@ export default function ExpandableTip({
     updateTipPosition?.();
   }, [compact, updateTipPosition]);
 
+  // Dive deeper / Quick meaning / Pin all need a text phrase to explain —
+  // an area selection's content is an image, not text, so these have
+  // nothing to act on and are hidden rather than silently doing nothing.
+  const hasTextSelection = Boolean(getCurrentSelection()?.content.text);
+
   return (
     <div className="expandable-tip">
       {compact ? (
@@ -48,30 +53,32 @@ export default function ExpandableTip({
           >
             Add highlight
           </button>
-          <DiveActionButtons
-            onDiveDeeper={() => {
-              const selection = getCurrentSelection();
-              if (!selection) return;
-              onDiveDeeper({
-                content: selection.content,
-                type: selection.type,
-                position: selection.position,
-              });
-              setTip(null);
-            }}
-            onQuickMeaning={async () => {
-              const selection = getCurrentSelection();
-              const text = selection?.content.text;
-              if (!text) throw new Error("No text selected.");
-              return onQuickMeaning(text, selection.position.boundingRect.pageNumber);
-            }}
-            onPin={() => {
-              const selection = getCurrentSelection();
-              const text = selection?.content.text;
-              if (!text) return;
-              onPin(text, selection.position.boundingRect.pageNumber);
-            }}
-          />
+          {hasTextSelection ? (
+            <DiveActionButtons
+              onDiveDeeper={() => {
+                const selection = getCurrentSelection();
+                if (!selection) return;
+                onDiveDeeper({
+                  content: selection.content,
+                  type: selection.type,
+                  position: selection.position,
+                });
+                setTip(null);
+              }}
+              onQuickMeaning={async () => {
+                const selection = getCurrentSelection();
+                const text = selection?.content.text;
+                if (!text) throw new Error("No text selected.");
+                return onQuickMeaning(text, selection.position.boundingRect.pageNumber);
+              }}
+              onPin={() => {
+                const selection = getCurrentSelection();
+                const text = selection?.content.text;
+                if (!text) return;
+                onPin(text, selection.position.boundingRect.pageNumber);
+              }}
+            />
+          ) : null}
         </>
       ) : (
         <CommentForm
