@@ -1,6 +1,9 @@
-import { Fragment, useRef, useState, type ReactNode } from "react";
+import { cloneElement, Fragment, isValidElement, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import type { DivePanel } from "./types";
 import { childrenOf } from "./tree";
 import { useSelectionCapture } from "./useSelectionCapture";
@@ -70,8 +73,9 @@ function wrapMarkersInText(
 }
 
 // Applies wrapMarkersInText to the plain-string children of a rendered
-// markdown element, leaving already-formatted children (e.g. <strong>,
-// <code>) untouched — matches rarely straddle inline-formatting boundaries.
+// markdown element, recursing into inline-formatting elements (<strong>,
+// <em>, <code>, ...) so a dived-into phrase still gets the clickable
+// marker even when part of it is bold/italic/etc.
 function wrapMarkerChildren(
   node: ReactNode,
   children: DivePanel[],
@@ -83,29 +87,44 @@ function wrapMarkerChildren(
       <Fragment key={index}>{wrapMarkerChildren(child, children, onOpenDive)}</Fragment>
     ));
   }
+  if (isValidElement<{ children?: ReactNode }>(node) && node.props.children !== undefined) {
+    return cloneElement(node, undefined, wrapMarkerChildren(node.props.children, children, onOpenDive));
+  }
   return node;
 }
 
-function markdownComponents(children: DivePanel[], onOpenDive: (panelId: string) => void): Components {
-  const wrap = (node: ReactNode) => wrapMarkerChildren(node, children, onOpenDive);
-  return {
-    p: ({ children: c }) => <p>{wrap(c)}</p>,
-    li: ({ children: c }) => <li>{wrap(c)}</li>,
-    h1: ({ children: c }) => <h1>{wrap(c)}</h1>,
-    h2: ({ children: c }) => <h2>{wrap(c)}</h2>,
-    h3: ({ children: c }) => <h3>{wrap(c)}</h3>,
-    td: ({ children: c }) => <td>{wrap(c)}</td>,
-    th: ({ children: c }) => <th>{wrap(c)}</th>,
-  };
-}
-
-function renderTurnContent(
-  content: string,
+// `components` is passed to every ReactMarkdown instance in this panel and
+// must stay referentially stable across renders — react-markdown's custom
+// component functions are compared by reference, so a fresh object here on
+// every render (e.g. from local UI state changing elsewhere in this
+// component) makes React treat <p>/<li>/etc. as brand-new component types
+// and remount their DOM nodes, silently clearing any browser text
+// selection the user just made inside them.
+function useMarkdownComponents(
   children: DivePanel[],
   onOpenDive: (panelId: string) => void,
-): ReactNode {
+): Components {
+  return useMemo(() => {
+    const wrap = (node: ReactNode) => wrapMarkerChildren(node, children, onOpenDive);
+    return {
+      p: ({ children: c }) => <p>{wrap(c)}</p>,
+      li: ({ children: c }) => <li>{wrap(c)}</li>,
+      h1: ({ children: c }) => <h1>{wrap(c)}</h1>,
+      h2: ({ children: c }) => <h2>{wrap(c)}</h2>,
+      h3: ({ children: c }) => <h3>{wrap(c)}</h3>,
+      td: ({ children: c }) => <td>{wrap(c)}</td>,
+      th: ({ children: c }) => <th>{wrap(c)}</th>,
+    };
+  }, [children, onOpenDive]);
+}
+
+function renderTurnContent(content: string, components: Components): ReactNode {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents(children, onOpenDive)}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      components={components}
+    >
       {content}
     </ReactMarkdown>
   );
@@ -125,7 +144,8 @@ export default function DivePanelPane({
   const [streamingReply, setStreamingReply] = useState("");
   const dialogueRef = useRef<HTMLDivElement>(null);
   const { captured, clear } = useSelectionCapture(dialogueRef, ".dive-turn");
-  const children = childrenOf(allPanels, panel.id);
+  const children = useMemo(() => childrenOf(allPanels, panel.id), [allPanels, panel.id]);
+  const markdownComponents = useMarkdownComponents(children, onOpenDive);
 
   const send = async (content: string) => {
     if (!content.trim() || pending) return;
@@ -142,12 +162,12 @@ export default function DivePanelPane({
       <div className="dive-panel-dialogue" ref={dialogueRef}>
         {panel.turns.map((turn, index) => (
           <div key={index} className={`dive-turn dive-turn-${turn.role}`}>
-            {renderTurnContent(turn.content, children, onOpenDive)}
+            {renderTurnContent(turn.content, markdownComponents)}
           </div>
         ))}
         {pending ? (
           <div className="dive-turn dive-turn-assistant dive-turn-streaming">
-            {streamingReply ? renderTurnContent(streamingReply, children, onOpenDive) : "…"}
+            {streamingReply ? renderTurnContent(streamingReply, markdownComponents) : "…"}
           </div>
         ) : null}
       </div>

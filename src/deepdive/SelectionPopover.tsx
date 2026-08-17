@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import DiveActionButtons from "./DiveActionButtons";
 
 export interface SelectionPopoverProps {
@@ -17,8 +18,21 @@ export default function SelectionPopover({
   onPin,
   onClose,
 }: SelectionPopoverProps) {
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleMouseDown = (event: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [onClose]);
+
   return (
     <div
+      ref={popoverRef}
       className="selection-popover"
       style={{ left: position.x, top: position.y }}
       onMouseDown={(event) => event.stopPropagation()}
