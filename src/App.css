@@ -629,13 +629,14 @@
 }
 
 .dive-turn .katex-display {
-  margin: 0.5em 0;
+  margin: 0.7em 0;
+  padding: 0.5em 0;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
 .dive-turn .katex {
-  font-size: 1em;
+  font-size: 1.05em;
 }
 
 .dive-turn-marker {
