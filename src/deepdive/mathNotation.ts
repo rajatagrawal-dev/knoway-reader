@@ -88,6 +88,11 @@ function toLatexToken(token: string): string {
   const base = token.slice(0, caretIndex);
   let exponent = token.slice(caretIndex + 1);
   if (exponent.startsWith("(") && exponent.endsWith(")")) exponent = exponent.slice(1, -1);
+  // Already brace-delimited (e.g. the model wrote "x^{2}" plain, with no $
+  // at all) — don't wrap it again into "^{{2}}".
+  if (exponent.startsWith("{") && exponent.endsWith("}")) {
+    return `${convertGreekAndSuperscript(base)}^${convertGreekAndSuperscript(exponent)}`;
+  }
   return `${convertGreekAndSuperscript(base)}^{${convertGreekAndSuperscript(exponent)}}`;
 }
 
@@ -196,10 +201,26 @@ function hasBalancedDollarDelimiters(markdown: string): boolean {
 }
 
 export function normalizeMathNotation(markdown: string): string {
+  // Check balance on the *raw* content before running any promotion pass.
+  // Those passes assume $ signs are already sanely paired — they use them
+  // to identify "this span is already math, leave it alone." If a
+  // delimiter is malformed (e.g. the model drops one character from a
+  // closing $$) they can end up sweeping the dangling delimiter into a
+  // *newly* promoted $$...$$ wrap, which can coincidentally restore even
+  // parity while leaving the pairing nonsensical — masking the exact
+  // problem the balance check exists to catch. Bailing out here, before
+  // any of that runs, guarantees a safe (if plain) fallback.
+  if (!hasBalancedDollarDelimiters(markdown)) {
+    return markdown.replace(/\$/g, "\\$");
+  }
   const upgraded = promoteSubstantialInlineMath(markdown);
   const normalized = autoWrapCaretExponents(promoteInlineEquations(upgraded));
+  // Defense in depth: the passes above are expected to preserve balance on
+  // already-balanced input, but if a bug in them ever breaks that
+  // invariant, fail safe here too rather than handing KaTeX something
+  // broken.
   if (!hasBalancedDollarDelimiters(normalized)) {
-    return normalized.replace(/\$/g, "\\$");
+    return markdown.replace(/\$/g, "\\$");
   }
   return normalized;
 }
