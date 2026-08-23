@@ -1,6 +1,11 @@
+import type { ReactNode } from "react";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { CommentedHighlight } from "../types";
 import type { Pin } from "../deepdive/types";
-import DiveBadge from "../deepdive/DiveBadge";
+import AnnotationsPanel from "./AnnotationsPanel";
+import TableOfContentsPanel from "./TableOfContentsPanel";
+
+export type SidebarPanel = "annotations" | "toc";
 
 interface SidebarProps {
   highlights: CommentedHighlight[];
@@ -13,16 +18,43 @@ interface SidebarProps {
   onOpenDive: (divePanelId: string) => void;
   onDeletePin: (pinId: string) => void;
   onUploadNew: () => void;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
+  activePanel: SidebarPanel | null;
+  onSelectPanel: (panel: SidebarPanel) => void;
+  pdfDocument: PDFDocumentProxy | null;
+  currentPage: number;
+  onGoToPage: (pageNumber: number) => void;
 }
 
-function highlightLabel(highlight: CommentedHighlight): string {
-  if (highlight.content?.text) return highlight.content.text;
-  if (highlight.type === "freetext") return "Sticky note";
-  if (highlight.type === "area") return "Area highlight";
-  return "Highlight";
+function AnnotationsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 3h12v18l-6-4-6 4V3z" />
+    </svg>
+  );
 }
+
+function TocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="14" y2="18" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ direction }: { direction: "left" | "right" }) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points={direction === "left" ? "15 6 9 12 15 18" : "9 6 15 12 9 18"} />
+    </svg>
+  );
+}
+
+const RAIL_ITEMS: { id: SidebarPanel; label: string; icon: ReactNode }[] = [
+  { id: "toc", label: "Table of contents", icon: <TocIcon /> },
+  { id: "annotations", label: "Annotations", icon: <AnnotationsIcon /> },
+];
 
 export default function Sidebar({
   highlights,
@@ -35,137 +67,63 @@ export default function Sidebar({
   onOpenDive,
   onDeletePin,
   onUploadNew,
-  collapsed,
-  onToggleCollapsed,
+  activePanel,
+  onSelectPanel,
+  pdfDocument,
+  currentPage,
+  onGoToPage,
 }: SidebarProps) {
-  if (collapsed) {
-    return (
-      <aside className="sidebar sidebar--collapsed">
-        <button
-          type="button"
-          className="sidebar-toggle"
-          onClick={onToggleCollapsed}
-          title="Show annotations"
-          aria-label="Show annotations"
-        >
-          ›
-        </button>
-      </aside>
-    );
-  }
-
   return (
     <aside className="sidebar">
-      <header className="sidebar-header">
-        <div className="sidebar-header-row">
-          <h2>Annotations</h2>
+      <nav className="sidebar-rail">
+        {RAIL_ITEMS.map(({ id, label, icon }) => (
+          <button
+            key={id}
+            type="button"
+            className={`sidebar-rail-button${activePanel === id ? " active" : ""}`}
+            onClick={() => onSelectPanel(id)}
+            title={label}
+            aria-label={label}
+            aria-pressed={activePanel === id}
+          >
+            {icon}
+          </button>
+        ))}
+      </nav>
+
+      {activePanel ? (
+        <div className="sidebar-panel">
           <button
             type="button"
-            className="sidebar-toggle"
-            onClick={onToggleCollapsed}
-            title="Hide annotations"
-            aria-label="Hide annotations"
+            className="sidebar-collapse-button"
+            onClick={() => onSelectPanel(activePanel)}
+            title="Collapse panel"
+            aria-label="Collapse panel"
           >
-            ‹
+            <ChevronIcon direction="left" />
           </button>
+          {activePanel === "annotations" ? (
+            <AnnotationsPanel
+              highlights={highlights}
+              pins={pins}
+              fileName={fileName}
+              scrolledToHighlightId={scrolledToHighlightId}
+              onJumpToHighlight={onJumpToHighlight}
+              onDeleteHighlight={onDeleteHighlight}
+              onClearHighlights={onClearHighlights}
+              onOpenDive={onOpenDive}
+              onDeletePin={onDeletePin}
+              onUploadNew={onUploadNew}
+            />
+          ) : (
+            <TableOfContentsPanel
+              pdfDocument={pdfDocument}
+              currentPage={currentPage}
+              goToPage={onGoToPage}
+            />
+          )}
         </div>
-        <p className="sidebar-file">{fileName}</p>
-        <p className="sidebar-count">
-          {highlights.length} annotation{highlights.length === 1 ? "" : "s"}
-        </p>
-      </header>
-
-      <div className="sidebar-list">
-        {highlights.length === 0 ? (
-          <div className="sidebar-empty">
-            <p>No highlights yet</p>
-            <p className="sidebar-hint">
-              Select text to highlight, hold Alt and drag for area highlights,
-              or use Note mode for sticky notes.
-            </p>
-          </div>
-        ) : (
-          highlights.map((highlight) => (
-            <article
-              key={highlight.id}
-              className={`sidebar-item${
-                scrolledToHighlightId === highlight.id ? " is-active" : ""
-              }`}
-            >
-              <div
-                role="button"
-                tabIndex={0}
-                className="sidebar-item-main"
-                onClick={() => onJumpToHighlight(highlight)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onJumpToHighlight(highlight);
-                  }
-                }}
-              >
-                <span className="sidebar-item-type-row">
-                  <span className="sidebar-item-type">{highlight.type}</span>
-                  {highlight.divePanelId ? (
-                    <DiveBadge onClick={() => onOpenDive(highlight.divePanelId!)} />
-                  ) : null}
-                </span>
-                <span className="sidebar-item-page">
-                  Page {highlight.position.boundingRect.pageNumber}
-                </span>
-                <span className="sidebar-item-text">
-                  {highlightLabel(highlight)}
-                </span>
-                {highlight.comment ? (
-                  <span className="sidebar-item-comment">{highlight.comment}</span>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="sidebar-item-delete"
-                title="Delete annotation"
-                onClick={() => onDeleteHighlight(highlight)}
-              >
-                Delete
-              </button>
-            </article>
-          ))
-        )}
-      </div>
-
-      <div className="sidebar-pins">
-        <h3>Pins</h3>
-        {pins.length === 0 ? (
-          <p className="sidebar-empty-pins">No pins yet</p>
-        ) : (
-          <ul className="sidebar-pins-list">
-            {pins.map((pin) => (
-              <li key={pin.id} className="sidebar-pin">
-                <span>{pin.text}</span>
-                <button
-                  type="button"
-                  className="sidebar-pin-delete"
-                  title="Delete pin"
-                  onClick={() => onDeletePin(pin.id)}
-                >
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <footer className="sidebar-footer">
-        <button type="button" onClick={onUploadNew}>
-          Upload new PDF
-        </button>
-        {highlights.length > 0 ? (
-          <button type="button" className="danger" onClick={onClearHighlights}>
-            Clear all
-          </button>
-        ) : null}
-      </footer>
+      ) : null}
     </aside>
   );
 }

@@ -1,4 +1,4 @@
-import type { ChainEntry, DivePanel, DiveTurn } from "./types";
+import type { ChainEntry, DiveImage, DivePanel, DiveTurn } from "./types";
 
 export function panelById(panels: DivePanel[], id: string): DivePanel | null {
   return panels.find((p) => p.id === id) ?? null;
@@ -35,13 +35,15 @@ export function createRootPanel(params: {
   anchorHighlightId: string;
   selection: string;
   contextText: string;
+  selectionImage?: DiveImage;
 }): DivePanel {
   return {
     id: getNextId(),
     parentId: null,
     anchorHighlightId: params.anchorHighlightId,
     selection: params.selection,
-    label: params.selection.slice(0, 60),
+    selectionImage: params.selectionImage,
+    label: params.selection ? params.selection.slice(0, 60) : "Selected region",
     contextText: params.contextText,
     turns: [],
     createdAt: new Date().toISOString(),

@@ -15,6 +15,25 @@ import { extractPageContext } from "./pdfContext";
 
 export type PdfSource = string | Uint8Array;
 
+// PdfLoader invokes its children render-prop synchronously during its own
+// render, so calling a state setter directly from that closure would update
+// PdfPane while PdfLoader is rendering (React warns and disallows this).
+// Routing the notification through this tiny component's own effect defers
+// it to PdfPane's next commit instead, which is the sanctioned place to
+// trigger updates in other components.
+function DocumentReadySignal({
+  pdfDocument,
+  onDocumentReady,
+}: {
+  pdfDocument: PDFDocumentProxy;
+  onDocumentReady?: (pdfDocument: PDFDocumentProxy) => void;
+}) {
+  useEffect(() => {
+    onDocumentReady?.(pdfDocument);
+  }, [pdfDocument, onDocumentReady]);
+  return null;
+}
+
 export interface PdfPaneProps {
   source: PdfSource;
   highlights: CommentedHighlight[];
@@ -27,10 +46,10 @@ export interface PdfPaneProps {
   utilsRef: (utils: PdfHighlighterUtils) => void;
   onOpenDive: (divePanelId: string) => void;
   onDiveDeeper: (request: { highlight: GhostHighlight; contextText: string }) => void;
-  onQuickMeaning: (selection: string, contextText: string) => Promise<string>;
   onPin: (selection: string, contextText: string) => void;
   initialPage?: number;
   onPageChange?: (pageNumber: number) => void;
+  onDocumentReady?: (pdfDocument: PDFDocumentProxy) => void;
 }
 
 export default function PdfPane({
@@ -45,10 +64,10 @@ export default function PdfPane({
   utilsRef,
   onOpenDive,
   onDiveDeeper,
-  onQuickMeaning,
   onPin,
   initialPage,
   onPageChange,
+  onDocumentReady,
 }: PdfPaneProps) {
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
 
@@ -63,6 +82,13 @@ export default function PdfPane({
 
   const highlighterUtilsRef = useRef<PdfHighlighterUtils | null>(null);
 
+  // Snapshot the page to restore only once, at mount. `initialPage` itself
+  // keeps changing after that — it's fed by `onPageChange`, which the
+  // library fires on every ordinary page turn while the user scrolls — so
+  // depending on the live prop here would re-arm these corrective scrolls
+  // on every page change and yank the view back to a stale page mid-scroll.
+  const [initialPageAtMount] = useState(initialPage);
+
   // The library's own initialPage mechanism "settles" once its internal
   // currentPageNumber counter matches the target — but that counter is set
   // synchronously inside scrollPageIntoView itself, before the actual
@@ -76,13 +102,13 @@ export default function PdfPane({
   // on a later call — cheap and harmless once we're already on the right
   // page, since re-scrolling to the current page is a no-op.
   useEffect(() => {
-    if (!initialPage || initialPage <= 1) return;
+    if (!initialPageAtMount || initialPageAtMount <= 1) return;
     let cancelled = false;
     const timeouts = [500, 1200, 2200, 3500, 5000, 7000].map((delay) =>
       window.setTimeout(() => {
         if (cancelled) return;
         try {
-          highlighterUtilsRef.current?.getViewer()?.scrollPageIntoView({ pageNumber: initialPage });
+          highlighterUtilsRef.current?.getViewer()?.scrollPageIntoView({ pageNumber: initialPageAtMount });
         } catch {
           // best-effort correction; nothing to do if it throws
         }
@@ -92,7 +118,7 @@ export default function PdfPane({
       cancelled = true;
       timeouts.forEach(window.clearTimeout);
     };
-  }, [initialPage]);
+  }, [initialPageAtMount]);
 
   return (
     <div className="pdf-pane-viewer">
@@ -104,47 +130,46 @@ export default function PdfPane({
         {(pdfDocument) => {
           pdfDocumentRef.current = pdfDocument;
           return (
-            <PdfHighlighter
-              pdfDocument={pdfDocument}
-              highlights={highlights}
-              enableAreaSelection={(event) => event.altKey || areaMode}
-              areaSelectionMode={areaMode}
-              enableFreetextCreation={() => freetextMode}
-              onFreetextClick={onFreetextClick}
-              initialPage={initialPage}
-              onPageChange={onPageChange}
-              selectionTip={
-                <ExpandableTip
-                  addHighlight={addHighlight}
-                  onDiveDeeper={async (highlight) => {
-                    const contextText = await extractPageContext(
-                      pdfDocumentRef.current!,
-                      highlight.position.boundingRect.pageNumber,
-                    );
-                    onDiveDeeper({ highlight, contextText });
-                  }}
-                  onQuickMeaning={async (selection, pageNumber) => {
-                    const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
-                    return onQuickMeaning(selection, contextText);
-                  }}
-                  onPin={async (selection, pageNumber) => {
-                    const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
-                    onPin(selection, contextText);
-                  }}
+            <>
+              <DocumentReadySignal pdfDocument={pdfDocument} onDocumentReady={onDocumentReady} />
+              <PdfHighlighter
+                pdfDocument={pdfDocument}
+                highlights={highlights}
+                enableAreaSelection={(event) => event.altKey || areaMode}
+                areaSelectionMode={areaMode}
+                enableFreetextCreation={() => freetextMode}
+                onFreetextClick={onFreetextClick}
+                initialPage={initialPage}
+                onPageChange={onPageChange}
+                selectionTip={
+                  <ExpandableTip
+                    addHighlight={addHighlight}
+                    onDiveDeeper={async (highlight) => {
+                      const contextText = await extractPageContext(
+                        pdfDocumentRef.current!,
+                        highlight.position.boundingRect.pageNumber,
+                      );
+                      onDiveDeeper({ highlight, contextText });
+                    }}
+                    onPin={async (selection, pageNumber) => {
+                      const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
+                      onPin(selection, contextText);
+                    }}
+                  />
+                }
+                utilsRef={(utils) => {
+                  highlighterUtilsRef.current = utils;
+                  utilsRef(utils);
+                }}
+                style={{ height: "100%" }}
+              >
+                <HighlightContainer
+                  editHighlight={editHighlight}
+                  deleteHighlight={deleteHighlight}
+                  onOpenDive={onOpenDive}
                 />
-              }
-              utilsRef={(utils) => {
-                highlighterUtilsRef.current = utils;
-                utilsRef(utils);
-              }}
-              style={{ height: "100%" }}
-            >
-              <HighlightContainer
-                editHighlight={editHighlight}
-                deleteHighlight={deleteHighlight}
-                onOpenDive={onOpenDive}
-              />
-            </PdfHighlighter>
+              </PdfHighlighter>
+            </>
           );
         }}
       </PdfLoader>

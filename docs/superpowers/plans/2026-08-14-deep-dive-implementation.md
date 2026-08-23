@@ -35,7 +35,7 @@ Reference: `docs/superpowers/specs/2026-08-14-deep-dive-design.md` (this repo) i
 
 This is a direct port of LearningApp's `lib/models.js` (already proven and tested there), renaming `TEACH_MODEL`→`DIVE_MODEL`, `FAST_MODEL`→`QUICK_MODEL`, `streamTeachingReply`→`streamDiveReply`, `createModels`→`createDiveModels`, with new model defaults.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `server/claude.test.js`:
 
@@ -172,12 +172,12 @@ test("streamDiveReply rejects (does not crash) on a CLI error result", async () 
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test server/claude.test.js`
 Expected: FAIL — `server/claude.js` does not exist yet (`Cannot find module`).
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `server/claude.js`:
 
@@ -385,12 +385,12 @@ export const streamDiveReply = (args) => defaultModels.streamDiveReply(args);
 export const quickAnswer = (args) => defaultModels.quickAnswer(args);
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node --test server/claude.test.js`
 Expected: all 5 tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/claude.js server/claude.test.js
@@ -409,7 +409,7 @@ git commit -m "feat: add claude CLI wrapper for Deep Dive replies"
 - Consumes: `createDiveModels` shape from Task 1 — `{ streamDiveReply({system, messages, onText}): Promise<string>, quickAnswer({system, prompt}): Promise<string> }`.
 - Produces: `buildApp({ models })` returning an Express `app` with `GET /api/health`, `POST /api/dive/stream` (SSE), `POST /api/dive/quick` (JSON). Task 3 consumes `buildApp` directly.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `server/app.test.js`:
 
@@ -546,12 +546,12 @@ test("POST /api/dive/quick returns 502 when the model rejects", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test server/app.test.js`
 Expected: FAIL — `server/app.js` does not exist yet.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `server/app.js`:
 
@@ -610,12 +610,12 @@ export function buildApp({ models }) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `node --test server/app.test.js`
 Expected: all 7 tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/app.js server/app.test.js
@@ -637,14 +637,14 @@ git commit -m "feat: add stateless Express app for Deep Dive API routes"
 - Consumes: `buildApp` from Task 2 (`server/app.js`), `createDiveModels` from Task 1 (`server/claude.js`).
 - Produces: `npm run dev` starts both Vite and the API server together; `npm start` runs the API server in production mode (also serving the built `dist/`); `npm test` runs the backend test suite; the Vite dev server proxies `/api/*` to the backend.
 
-- [ ] **Step 1: Install dependencies**
+- [x] **Step 1: Install dependencies**
 
 ```bash
 npm install express
 npm install -D concurrently
 ```
 
-- [ ] **Step 2: Create the entrypoint**
+- [x] **Step 2: Create the entrypoint**
 
 Create `server/index.js`:
 
@@ -669,7 +669,7 @@ app.listen(PORT, () => {
 });
 ```
 
-- [ ] **Step 3: Add `.env.example`**
+- [x] **Step 3: Add `.env.example`**
 
 Create `.env.example` at the project root:
 
@@ -684,7 +684,7 @@ Create `.env.example` at the project root:
 # CLAUDE_BIN=claude
 ```
 
-- [ ] **Step 4: Ignore `.env`**
+- [x] **Step 4: Ignore `.env`**
 
 In `.gitignore`, add a new line after the `*.local` line:
 
@@ -692,7 +692,7 @@ In `.gitignore`, add a new line after the `*.local` line:
 .env
 ```
 
-- [ ] **Step 5: Update `package.json` scripts**
+- [x] **Step 5: Update `package.json` scripts**
 
 Edit the `"scripts"` block in `package.json` to:
 
@@ -708,7 +708,7 @@ Edit the `"scripts"` block in `package.json` to:
   },
 ```
 
-- [ ] **Step 6: Add the Vite dev proxy**
+- [x] **Step 6: Add the Vite dev proxy**
 
 Edit `vite.config.ts`:
 
@@ -727,12 +727,12 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 7: Verify the backend test suite still passes**
+- [x] **Step 7: Verify the backend test suite still passes**
 
 Run: `npm test`
 Expected: all 12 tests (5 from `claude.test.js` + 7 from `app.test.js`) PASS.
 
-- [ ] **Step 8: Verify the dev wiring boots and proxies correctly**
+- [x] **Step 8: Verify the dev wiring boots and proxies correctly**
 
 ```bash
 npm run dev &
@@ -743,7 +743,7 @@ kill %1
 
 Expected: `{"ok":true}` — proving Vite's dev server is proxying `/api` through to the Express backend on port 4300. (If port 5173 is taken, check the `vite` output line in the concurrently log for the actual port and curl that instead.)
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add server/index.js .env.example .gitignore package.json package-lock.json vite.config.ts
@@ -765,7 +765,7 @@ git commit -m "feat: wire up Deep Dive backend dev/prod scripts and Vite proxy"
 
 No test framework exists for the frontend (Global Constraints); this task is verified via `tsc -b` and exercised end-to-end starting at Task 14.
 
-- [ ] **Step 1: Add `divePanelId` to `CommentedHighlight`**
+- [x] **Step 1: Add `divePanelId` to `CommentedHighlight`**
 
 In `src/types.ts`, add one field to the existing interface:
 
@@ -785,7 +785,7 @@ export interface CommentedHighlight extends Highlight {
 }
 ```
 
-- [ ] **Step 2: Create the Deep Dive types**
+- [x] **Step 2: Create the Deep Dive types**
 
 Create `src/deepdive/types.ts`:
 
@@ -820,7 +820,7 @@ export interface ChainEntry {
 }
 ```
 
-- [ ] **Step 3: Create the pure tree helpers**
+- [x] **Step 3: Create the pure tree helpers**
 
 Create `src/deepdive/tree.ts`:
 
@@ -910,12 +910,12 @@ export function childrenOf(panels: DivePanel[], parentId: string): DivePanel[] {
 }
 ```
 
-- [ ] **Step 4: Verify types**
+- [x] **Step 4: Verify types**
 
 Run: `npx tsc -b`
 Expected: no errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/types.ts src/deepdive/types.ts src/deepdive/tree.ts
@@ -935,7 +935,7 @@ git commit -m "feat: add Deep Dive panel/pin types and pure tree helpers"
 
 Mirrors the existing `storageKeyForFile`/`loadHighlights`/`saveHighlights` pattern already in `App.tsx`.
 
-- [ ] **Step 1: Write the module**
+- [x] **Step 1: Write the module**
 
 Create `src/deepdive/store.ts`:
 
@@ -983,12 +983,12 @@ export function savePins(key: string, pins: Pin[]) {
 }
 ```
 
-- [ ] **Step 2: Verify types**
+- [x] **Step 2: Verify types**
 
 Run: `npx tsc -b`
 Expected: no errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/deepdive/store.ts
@@ -1010,7 +1010,7 @@ git commit -m "feat: add localStorage persistence for dive panels and pins"
 
 `react-pdf-highlighter-plus` exports `extractPageTextItems(pdfDocument, {pages, columnDetection?}): Promise<PdfExtractedPage[]>` where each `PdfExtractedPage` has `{pageNumber, width, height, textItems: {text, index, pageNumber, rect, ...}[]}`. `PDFDocumentProxy` is exported from `pdfjs-dist` (already a direct dependency).
 
-- [ ] **Step 1: Write `pdfContext.ts`**
+- [x] **Step 1: Write `pdfContext.ts`**
 
 Create `src/deepdive/pdfContext.ts`:
 
@@ -1040,7 +1040,7 @@ export async function extractPageContext(
 }
 ```
 
-- [ ] **Step 2: Write `prompts.ts`**
+- [x] **Step 2: Write `prompts.ts`**
 
 Create `src/deepdive/prompts.ts`:
 
@@ -1079,12 +1079,12 @@ export function openingMessage(selection: string): string {
 }
 ```
 
-- [ ] **Step 3: Verify types**
+- [x] **Step 3: Verify types**
 
 Run: `npx tsc -b`
 Expected: no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/deepdive/pdfContext.ts src/deepdive/prompts.ts
@@ -1102,7 +1102,7 @@ git commit -m "feat: add PDF page-context extraction and dive prompt builders"
 - Produces: `streamDiveReply({system, messages, onText}): Promise<string>`, `quickMeaning({system, prompt}): Promise<string>`. Consumed by Task 14 (`App.tsx`).
 - Talks to the two routes from Task 2 (`POST /api/dive/stream`, `POST /api/dive/quick`), proxied by Vite per Task 3.
 
-- [ ] **Step 1: Write the module**
+- [x] **Step 1: Write the module**
 
 Create `src/deepdive/api.ts`:
 
@@ -1171,12 +1171,12 @@ export async function quickMeaning(params: { system: string; prompt: string }): 
 }
 ```
 
-- [ ] **Step 2: Verify types**
+- [x] **Step 2: Verify types**
 
 Run: `npx tsc -b`
 Expected: no errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/deepdive/api.ts
@@ -1198,7 +1198,7 @@ git commit -m "feat: add Deep Dive API client"
 - Produces: `<DiveActionButtons onDiveDeeper={() => void} onQuickMeaning={() => Promise<string>} onPin={() => void} />` — the 3-button row + inline quick-meaning answer, no positioning of its own. Consumed by Task 9 (`ExpandableTip.tsx`, which is already positioned by the PDF library's own tip mechanism) and by `SelectionPopover` below (for contexts with no built-in positioning).
 - Produces: `<SelectionPopover selection position onDiveDeeper onQuickMeaning onPin onClose />` — a `position: fixed` floating wrapper around `DiveActionButtons`, for selections made inside plain chat text (no library tip mechanism there). Consumed by Task 12 (`DivePanelPane.tsx`).
 
-- [ ] **Step 1: Write the selection-capture hook**
+- [x] **Step 1: Write the selection-capture hook**
 
 Create `src/deepdive/useSelectionCapture.ts`:
 
@@ -1257,7 +1257,7 @@ export function useSelectionCapture(
 }
 ```
 
-- [ ] **Step 2: Write the presentational action-button row**
+- [x] **Step 2: Write the presentational action-button row**
 
 Create `src/deepdive/DiveActionButtons.tsx`:
 
@@ -1315,7 +1315,7 @@ export default function DiveActionButtons({
 }
 ```
 
-- [ ] **Step 3: Write the floating popover wrapper**
+- [x] **Step 3: Write the floating popover wrapper**
 
 Create `src/deepdive/SelectionPopover.tsx`:
 
@@ -1355,7 +1355,7 @@ export default function SelectionPopover({
 }
 ```
 
-- [ ] **Step 4: Add CSS**
+- [x] **Step 4: Add CSS**
 
 Append to `src/App.css`:
 
@@ -1421,12 +1421,12 @@ Append to `src/App.css`:
 }
 ```
 
-- [ ] **Step 5: Verify types**
+- [x] **Step 5: Verify types**
 
 Run: `npx tsc -b`
 Expected: no errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/deepdive/useSelectionCapture.ts src/deepdive/DiveActionButtons.tsx src/deepdive/SelectionPopover.tsx src/App.css
@@ -1446,7 +1446,7 @@ git commit -m "feat: add selection-capture hook and dive action popover UI"
 
 The existing "Add highlight" → `CommentForm` flow is unchanged; the three new actions render alongside it in the compact view, reading the live selection directly (no ghost highlight needed since these paths don't show a comment form).
 
-- [ ] **Step 1: Rewrite the component**
+- [x] **Step 1: Rewrite the component**
 
 Replace the full contents of `src/components/ExpandableTip.tsx`:
 
@@ -1551,12 +1551,12 @@ export default function ExpandableTip({
 }
 ```
 
-- [ ] **Step 2: Verify types**
+- [x] **Step 2: Verify types**
 
 Run: `npx tsc -b`
 Expected: errors about missing `onDiveDeeper`/`onQuickMeaning`/`onPin` props at the `<ExpandableTip ...>` call site in `App.tsx` — this is expected until Task 14 rewires `App.tsx`. Confirm the error is *only* at that call site and `ExpandableTip.tsx` itself has no errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/components/ExpandableTip.tsx
@@ -1578,7 +1578,7 @@ git commit -m "feat: add Dive deeper, Quick meaning, and Pin actions to the sele
 - `HighlightContainer` gains a required `onOpenDive: (divePanelId: string) => void` prop.
 - `Sidebar` gains required `pins: Pin[]`, `onOpenDive: (divePanelId: string) => void`, `onDeletePin: (pinId: string) => void` props. Both new `HighlightContainer`/`Sidebar` prop shapes are consumed by Task 14 (`App.tsx`).
 
-- [ ] **Step 1: Write the badge component**
+- [x] **Step 1: Write the badge component**
 
 Create `src/deepdive/DiveBadge.tsx`:
 
@@ -1604,7 +1604,7 @@ export default function DiveBadge({ onClick }: DiveBadgeProps) {
 }
 ```
 
-- [ ] **Step 2: Wire the badge into `HighlightContainer`**
+- [x] **Step 2: Wire the badge into `HighlightContainer`**
 
 Replace the full contents of `src/components/HighlightContainer.tsx`:
 
@@ -1738,7 +1738,7 @@ export default function HighlightContainer({
 }
 ```
 
-- [ ] **Step 3: Add the Pins section + dive badges to `Sidebar`**
+- [x] **Step 3: Add the Pins section + dive badges to `Sidebar`**
 
 Replace the full contents of `src/components/Sidebar.tsx`:
 
@@ -1878,7 +1878,7 @@ export default function Sidebar({
 }
 ```
 
-- [ ] **Step 4: Add CSS**
+- [x] **Step 4: Add CSS**
 
 Append to `src/App.css`:
 
@@ -1949,12 +1949,12 @@ Append to `src/App.css`:
 }
 ```
 
-- [ ] **Step 5: Verify types**
+- [x] **Step 5: Verify types**
 
 Run: `npx tsc -b`
 Expected: errors only at the `<HighlightContainer .../>` and `<Sidebar .../>` call sites in `App.tsx` (missing new required props) — expected until Task 14. Confirm no errors inside `HighlightContainer.tsx`, `Sidebar.tsx`, or `DiveBadge.tsx` themselves.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/deepdive/DiveBadge.tsx src/components/HighlightContainer.tsx src/components/Sidebar.tsx src/App.css
@@ -1975,7 +1975,7 @@ git commit -m "feat: add dive badge on highlights and a Pins section to the side
 
 This task only *moves* code (from `App.tsx`'s current `<main className="viewer">` block) and adds the context-extraction wiring for the three new `ExpandableTip` callbacks — it does not yet change `App.tsx` itself (that's Task 14). Expect `tsc -b` to still show errors in `App.tsx` after this step; that's addressed in Task 14.
 
-- [ ] **Step 1: Write `PdfPane.tsx`**
+- [x] **Step 1: Write `PdfPane.tsx`**
 
 Create `src/deepdive/PdfPane.tsx`:
 
@@ -2084,7 +2084,7 @@ export default function PdfPane({
 }
 ```
 
-- [ ] **Step 2: Move the viewer background styling to `.pdf-pane-viewer`**
+- [x] **Step 2: Move the viewer background styling to `.pdf-pane-viewer`**
 
 In `src/App.css`, the existing `.viewer` rule currently carries both layout and the PDF-canvas background:
 
@@ -2109,12 +2109,12 @@ Replace it with a layout-only `.viewer` (unchanged responsibility — it's still
 }
 ```
 
-- [ ] **Step 3: Verify types**
+- [x] **Step 3: Verify types**
 
 Run: `npx tsc -b`
 Expected: no errors inside `src/deepdive/PdfPane.tsx` itself. `App.tsx` will still show errors (it hasn't been updated yet — that's Task 14); confirm the errors are confined to `App.tsx`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/deepdive/PdfPane.tsx src/App.css
@@ -2135,7 +2135,7 @@ git commit -m "feat: extract PdfPane as a reusable PDF viewer component"
 
 Renders the panel's turn history, a live-streaming assistant bubble while a reply is in flight, a composer for follow-ups, and reuses `SelectionPopover` for nested dives/quick meaning/pins triggered by selecting text within the panel's own turns (context = the specific turn's full text, matching spec §6's "parent's full reply text"). Per spec §7.4, any substring of a turn that matches one of the panel's own child dives' `selection` is rendered as a clickable marker that calls `onOpenDive` — this is how a branch already dived into gets re-opened without retracing the breadcrumb.
 
-- [ ] **Step 1: Write the component**
+- [x] **Step 1: Write the component**
 
 Create `src/deepdive/DivePanelPane.tsx`:
 
@@ -2291,7 +2291,7 @@ export default function DivePanelPane({
 }
 ```
 
-- [ ] **Step 2: Add CSS**
+- [x] **Step 2: Add CSS**
 
 Append to `src/App.css`:
 
@@ -2384,12 +2384,12 @@ Append to `src/App.css`:
 }
 ```
 
-- [ ] **Step 3: Verify types**
+- [x] **Step 3: Verify types**
 
 Run: `npx tsc -b`
 Expected: no errors inside `src/deepdive/DivePanelPane.tsx` itself (App.tsx errors persist until Task 14).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/deepdive/DivePanelPane.tsx src/App.css
@@ -2410,7 +2410,7 @@ git commit -m "feat: add DivePanelPane dive chat component"
 
 Implements spec §7.2–§7.3: a clickable breadcrumb built from `ancestorChain`, and a pane row that always renders `paneWindow(chain)` — the focused panel plus its immediate predecessor (root/PDF if the chain is only 2 deep). Clicking the root crumb calls `onFocusChange(null)`, which is how `App.tsx` (Task 14) exits Deep Dive mode entirely.
 
-- [ ] **Step 1: Write the component**
+- [x] **Step 1: Write the component**
 
 Create `src/deepdive/DeepDiveView.tsx`:
 
@@ -2486,7 +2486,7 @@ export default function DeepDiveView({
 }
 ```
 
-- [ ] **Step 2: Add CSS**
+- [x] **Step 2: Add CSS**
 
 Append to `src/App.css`:
 
@@ -2557,12 +2557,12 @@ Append to `src/App.css`:
 }
 ```
 
-- [ ] **Step 3: Verify types**
+- [x] **Step 3: Verify types**
 
 Run: `npx tsc -b`
 Expected: no errors inside `src/deepdive/DeepDiveView.tsx` itself (App.tsx errors persist until Task 14).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/deepdive/DeepDiveView.tsx src/App.css
@@ -2582,7 +2582,7 @@ git commit -m "feat: add DeepDiveView breadcrumb and sliding 2-pane split view"
 
 This closes the loop from spec §7.1 (`diveFocusId` state controls which layout renders), §7.3 (diving from either visible pane creates a new panel and slides the window), and §9 (stream/CLI failures render as an inline `⚠️` turn rather than crashing).
 
-- [ ] **Step 1: Rewrite `App.tsx`**
+- [x] **Step 1: Rewrite `App.tsx`**
 
 Replace the full contents of `src/App.tsx`:
 
@@ -3038,7 +3038,7 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 2: Verify types and build**
+- [x] **Step 2: Verify types and build**
 
 ```bash
 npx tsc -b
@@ -3047,12 +3047,12 @@ npx vite build
 
 Expected: both clean, zero errors. This is the first point in the plan where the whole app type-checks end-to-end — if errors remain, they'll be prop-shape mismatches between `App.tsx` and one of Tasks 9–13; fix by matching the exact interface names/types recorded in each task's **Interfaces** block.
 
-- [ ] **Step 3: Verify lint**
+- [x] **Step 3: Verify lint**
 
 Run: `npx oxlint`
 Expected: no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/App.tsx
@@ -3069,7 +3069,7 @@ git commit -m "feat: wire Deep Dive mode into App.tsx"
 
 Requires the local `claude` CLI installed and logged in (Global Constraints) — this is an environment dependency outside the plan's control, same caveat LearningApp's own README carries. If it's not available, run Steps 1–2 (which don't need it) and report the CLI dependency as the reason Steps 3+ couldn't run live.
 
-- [ ] **Step 1: Full backend suite + frontend build**
+- [x] **Step 1: Full backend suite + frontend build**
 
 ```bash
 npm test
@@ -3080,7 +3080,7 @@ npx oxlint
 
 Expected: all green.
 
-- [ ] **Step 2: Boot the app**
+- [x] **Step 2: Boot the app**
 
 ```bash
 npm run dev &
@@ -3088,7 +3088,7 @@ sleep 2
 curl -sf http://localhost:5173/ > /dev/null && echo "dev server OK"
 ```
 
-- [ ] **Step 3: Playwright golden-path walkthrough**
+- [x] **Step 3: Playwright golden-path walkthrough**
 
 Using the same headless-Chromium approach as the earlier CSS-fix verification in this project (`playwright` installed to a scratch directory, driving `http://localhost:5173`), against a real PDF:
 
@@ -3101,14 +3101,14 @@ Using the same headless-Chromium approach as the earlier CSS-fix verification in
 7. Select text → click **Pin**. Confirm: the selection appears in the sidebar's new Pins section; deleting it removes it.
 8. Check `console --errors` (or the Playwright page's console listener) shows no uncaught exceptions across the whole walkthrough.
 
-- [ ] **Step 4: Clean up**
+- [x] **Step 4: Clean up**
 
 ```bash
 lsof -ti:5173 -sTCP:LISTEN | xargs -r kill
 lsof -ti:4300 -sTCP:LISTEN | xargs -r kill
 ```
 
-- [ ] **Step 5: Report**
+- [x] **Step 5: Report**
 
 Summarize which of Step 3's 8 checks passed, and note explicitly if the `claude` CLI wasn't available/logged in in this environment (in which case checks 1, 6 depend on live model output and should be called out as unverified rather than claimed as passing).
 

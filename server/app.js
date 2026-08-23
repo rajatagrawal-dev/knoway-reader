@@ -4,7 +4,9 @@ import express from "express";
 // this server has nothing to persist — it's purely an LLM proxy.
 export function buildApp({ models }) {
   const app = express();
-  app.use(express.json({ limit: "2mb" }));
+  // Area-highlight dives attach a screenshot (base64 PNG data URL) to the
+  // request body, which is bigger than plain text turns.
+  app.use(express.json({ limit: "15mb" }));
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
 

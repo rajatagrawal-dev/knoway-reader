@@ -4,11 +4,17 @@ export interface DiveTurn {
   at: string; // ISO timestamp
 }
 
+export interface DiveImage {
+  mediaType: string;
+  data: string; // base64, no data: URL prefix
+}
+
 export interface DivePanel {
   id: string;
   parentId: string | null; // null = anchored directly to the PDF (root)
   anchorHighlightId: string | null; // set iff parentId is null
-  selection: string; // exact phrase dived into
+  selection: string; // exact phrase dived into; empty for an area/image-only highlight
+  selectionImage?: DiveImage; // screenshot for an area highlight dive; resent on every turn
   label: string; // selection, truncated to 60 chars
   contextText: string; // page(+prev page) text (root) or parent turn text (nested)
   turns: DiveTurn[];

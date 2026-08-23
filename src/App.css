@@ -45,56 +45,134 @@
   color: var(--link);
 }
 
-.workspace {
-  display: grid;
-  grid-template-columns: 320px 1fr;
-  flex: 1;
-  min-height: 0;
-  transition: grid-template-columns 0.15s ease;
+/* Inline svg defaults to vertical-align: baseline, which reserves descender
+   space below it in the line box — enough to make an icon-only button a
+   pixel taller than its text-only siblings, whose height instead comes from
+   the font's line-height "strut". vertical-align: middle removes just that
+   descender gap without discarding the strut itself (which display: block
+   would do, under-sizing the button instead). */
+.toolbar-actions button svg {
+  vertical-align: middle;
 }
 
-.workspace--sidebar-collapsed {
-  grid-template-columns: 44px 1fr;
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.search-bar input {
+  width: 200px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.search-bar-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  min-width: 3.5rem;
+  text-align: center;
+}
+
+.search-bar button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.search-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.search-bar button:not(:disabled):hover {
+  background: var(--panel-bg);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  flex: 1;
+  min-height: 0;
 }
 
 .sidebar {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   background: var(--bg);
   border-right: 1px solid var(--border);
   min-height: 0;
 }
 
-.sidebar--collapsed {
+.sidebar-rail {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  padding-top: 0.75rem;
+  gap: 0.4rem;
+  padding: 0.75rem 0.5rem;
+  border-right: 1px solid var(--border-soft);
+  flex-shrink: 0;
 }
 
-.sidebar-toggle {
+.sidebar-rail-button {
   border: 1px solid var(--border-strong);
   background: var(--bg);
   color: var(--muted);
   border-radius: 4px;
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
-  line-height: 1;
   flex-shrink: 0;
 }
 
-.sidebar-toggle:hover {
+.sidebar-rail-button:hover {
   background: var(--panel-bg);
   color: var(--text);
 }
 
-.sidebar-header-row {
+.sidebar-rail-button.active {
+  background: var(--link-tint);
+  border-color: var(--link);
+  color: var(--link);
+}
+
+.sidebar-panel {
+  position: relative;
   display: flex;
+  flex-direction: column;
+  width: 300px;
+  min-height: 0;
+}
+
+.sidebar-collapse-button {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 1;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-collapse-button:hover {
+  background: var(--panel-bg);
+  color: var(--text);
 }
 
 .sidebar-header {
@@ -119,6 +197,20 @@
   flex: 1;
   overflow: auto;
   padding: 0.75rem;
+}
+
+.toc-list {
+  padding: 0.25rem 0;
+}
+
+/* react-pdf-highlighter-plus's DocumentOutline is themed through these CSS
+   variables rather than classNames/styles props (see its source), so scope
+   them to the app's own palette here. */
+.toc-outline {
+  --lp-text: var(--text);
+  --lp-muted: var(--muted);
+  --lp-accent: var(--link);
+  --lp-hover: var(--link-tint);
 }
 
 .sidebar-empty {
@@ -276,7 +368,6 @@
    outlined button in the muted link color rather than a solid saturated
    fill, to match the reference paper's understated palette. */
 .upload-card button,
-.tip-button,
 .comment-form button,
 .dive-panel-composer button {
   border: 1px solid var(--link);
@@ -288,7 +379,6 @@
 }
 
 .upload-card button:hover,
-.tip-button:hover,
 .comment-form button:hover,
 .dive-panel-composer button:hover {
   background: var(--link-tint);
@@ -334,13 +424,6 @@
 .dive-action-row button:disabled {
   color: var(--muted);
   cursor: default;
-}
-
-.dive-action-answer {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--text);
-  line-height: 1.4;
 }
 
 .selection-popover {

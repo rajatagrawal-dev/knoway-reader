@@ -17,7 +17,9 @@ import {
 // text selection over the PDF is broken.
 import "pdfjs-dist/web/pdf_viewer.css";
 import "react-pdf-highlighter-plus/style/style.css";
-import Sidebar from "./components/Sidebar";
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import Sidebar, { type SidebarPanel } from "./components/Sidebar";
+import SearchBar, { SearchToggleButton } from "./components/SearchBar";
 import type { CommentedHighlight } from "./types";
 import "./App.css";
 import PdfPane from "./deepdive/PdfPane";
@@ -38,13 +40,9 @@ import {
   saveDivePanels,
   savePins,
 } from "./deepdive/store";
-import {
-  buildDiveSystem,
-  buildQuickMeaningPrompt,
-  buildQuickMeaningSystem,
-  openingMessage,
-} from "./deepdive/prompts";
-import { quickMeaning, streamDiveReply } from "./deepdive/api";
+import { buildDiveSystem, openingMessage } from "./deepdive/prompts";
+import { streamDiveReply } from "./deepdive/api";
+import { parseDataUrlImage } from "./deepdive/image";
 
 type PdfSource = string | Uint8Array;
 
@@ -118,12 +116,16 @@ export default function App() {
     null,
   );
   const [exporting, setExporting] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   // PdfPane remounts a fresh PdfHighlighter whenever the app switches between
   // the normal layout and the Deep Dive split view; this is threaded through
   // as `initialPage` so each remount reopens on the page the user was
   // actually reading instead of resetting to page 1.
   const [currentPage, setCurrentPage] = useState(1);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [activeSidebarPanel, setActiveSidebarPanel] = useState<SidebarPanel | null>(
+    "toc",
+  );
+  const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
 
   const highlighterUtilsRef = useRef<PdfHighlighterUtils | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -148,6 +150,18 @@ export default function App() {
     savePins(loadedPdf.pinsKey, pins);
   }, [pins, loadedPdf]);
 
+  useEffect(() => {
+    if (!loadedPdf) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [loadedPdf]);
+
   const loadPdfFile = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -171,6 +185,7 @@ export default function App() {
       setFreetextMode(false);
       setDiveFocusId(null);
       setCurrentPage(1);
+      setPdfDocument(null);
     };
     reader.onerror = () => {
       alert("Failed to read the PDF file.");
@@ -188,6 +203,7 @@ export default function App() {
     setFreetextMode(false);
     setScrolledToHighlightId(null);
     setCurrentPage(1);
+    setPdfDocument(null);
   };
 
   const addHighlight = (highlight: GhostHighlight, comment: string) => {
@@ -253,6 +269,14 @@ export default function App() {
     highlighterUtilsRef.current?.scrollToHighlight(highlight);
   };
 
+  const goToPage = (pageNumber: number) => {
+    highlighterUtilsRef.current?.getViewer()?.scrollPageIntoView({ pageNumber });
+  };
+
+  const handleSelectSidebarPanel = (panel: SidebarPanel) => {
+    setActiveSidebarPanel((current) => (current === panel ? null : panel));
+  };
+
   // Appends the user turn, builds the system prompt from the panel's own
   // context (+ its parent's selection, one sentence, per spec §6), streams
   // the reply, and appends the assistant turn once done. A failure appends
@@ -269,9 +293,14 @@ export default function App() {
       setPanels((prev) => replacePanel(prev, withUserTurn));
 
       const system = buildDiveSystem(loadedPdf.fileName, withUserTurn, parentPanel);
-      const messages = withUserTurn.turns.map((turn) => ({
+      // The backend is stateless (a fresh CLI process per request, no
+      // persisted session), so every call rebuilds the full turn history —
+      // an area-highlight's screenshot has to be resent on every follow-up,
+      // attached to the first turn, for the model to keep the visual context.
+      const messages = withUserTurn.turns.map((turn, index) => ({
         role: turn.role,
         content: turn.content,
+        ...(index === 0 && panel.selectionImage ? { image: panel.selectionImage } : {}),
       }));
 
       try {
@@ -307,12 +336,14 @@ export default function App() {
   const handleDiveDeeper = useCallback(
     ({ highlight, contextText }: { highlight: GhostHighlight; contextText: string }) => {
       const text = highlight.content.text;
-      if (!text) return;
+      const selectionImage = parseDataUrlImage(highlight.content.image);
+      if (!text && !selectionImage) return;
       const highlightId = getNextId();
       const panel = createRootPanel({
         anchorHighlightId: highlightId,
-        selection: text,
+        selection: text ?? "",
         contextText,
+        selectionImage,
       });
       const next: CommentedHighlight = {
         ...highlight,
@@ -332,17 +363,6 @@ export default function App() {
       createAndOpenDive(panel);
     },
     [createAndOpenDive],
-  );
-
-  const handleQuickMeaning = useCallback(
-    async (selection: string, contextText: string) => {
-      if (!loadedPdf) return "";
-      return quickMeaning({
-        system: buildQuickMeaningSystem(loadedPdf.fileName),
-        prompt: buildQuickMeaningPrompt(selection, contextText),
-      });
-    },
-    [loadedPdf],
   );
 
   const handlePin = useCallback((text: string, context: string) => {
@@ -378,10 +398,10 @@ export default function App() {
     },
     onOpenDive: handleOpenDive,
     onDiveDeeper: handleDiveDeeper,
-    onQuickMeaning: handleQuickMeaning,
     onPin: handlePin,
     initialPage: currentPage,
     onPageChange: setCurrentPage,
+    onDocumentReady: setPdfDocument,
   };
 
   return (
@@ -391,6 +411,11 @@ export default function App() {
           <strong className="toolbar-title">{loadedPdf.fileName}</strong>
         </div>
         <div className="toolbar-group toolbar-actions">
+          {searchOpen ? (
+            <SearchBar utilsRef={highlighterUtilsRef} onClose={() => setSearchOpen(false)} />
+          ) : (
+            <SearchToggleButton onClick={() => setSearchOpen(true)} />
+          )}
           <button
             type="button"
             className={areaMode ? "active" : ""}
@@ -440,11 +465,10 @@ export default function App() {
           pdfPaneProps={pdfPaneProps}
           onSendMessage={sendDiveMessage}
           onNestedDive={handleNestedDive}
-          onQuickMeaning={handleQuickMeaning}
           onPin={handlePin}
         />
       ) : (
-        <div className={`workspace${sidebarCollapsed ? " workspace--sidebar-collapsed" : ""}`}>
+        <div className="workspace">
           <Sidebar
             highlights={highlights}
             pins={pins}
@@ -456,8 +480,11 @@ export default function App() {
             onOpenDive={handleOpenDive}
             onDeletePin={handleDeletePin}
             onUploadNew={resetViewer}
-            collapsed={sidebarCollapsed}
-            onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+            activePanel={activeSidebarPanel}
+            onSelectPanel={handleSelectSidebarPanel}
+            pdfDocument={pdfDocument}
+            currentPage={currentPage}
+            onGoToPage={goToPage}
           />
 
           <main className="viewer">

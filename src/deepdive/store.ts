@@ -23,7 +23,14 @@ export function loadDivePanels(key: string): DivePanel[] {
 }
 
 export function saveDivePanels(key: string, panels: DivePanel[]) {
-  localStorage.setItem(key, JSON.stringify(panels));
+  try {
+    localStorage.setItem(key, JSON.stringify(panels));
+  } catch {
+    // Area-highlight dives embed a base64 screenshot per root panel, which
+    // can push a long dive history over the ~5-10MB localStorage quota.
+    // Losing persistence is better than crashing the render effect that
+    // calls this on every panel update.
+  }
 }
 
 export function loadPins(key: string): Pin[] {

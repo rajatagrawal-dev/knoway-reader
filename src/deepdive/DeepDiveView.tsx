@@ -11,7 +11,6 @@ export interface DeepDiveViewProps {
   pdfPaneProps: PdfPaneProps;
   onSendMessage: (panelId: string, content: string, onChunk?: (chunk: string) => void) => Promise<void>;
   onNestedDive: (request: { parentId: string; selection: string; contextText: string }) => void;
-  onQuickMeaning: (selection: string, contextText: string) => Promise<string>;
   onPin: (selection: string, contextText: string) => void;
 }
 
@@ -23,7 +22,6 @@ export default function DeepDiveView({
   pdfPaneProps,
   onSendMessage,
   onNestedDive,
-  onQuickMeaning,
   onPin,
 }: DeepDiveViewProps) {
   const chain = ancestorChain(panels, focusId, rootLabel);
@@ -57,7 +55,6 @@ export default function DeepDiveView({
                 onOpenDive={onFocusChange}
                 onSendMessage={onSendMessage}
                 onNestedDive={onNestedDive}
-                onQuickMeaning={onQuickMeaning}
                 onPin={onPin}
               />
             )}

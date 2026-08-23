@@ -5,7 +5,6 @@ export interface SelectionPopoverProps {
   selection: string;
   position: { x: number; y: number };
   onDiveDeeper: () => void;
-  onQuickMeaning: () => Promise<string>;
   onPin: () => void;
   onClose: () => void;
 }
@@ -14,7 +13,6 @@ export default function SelectionPopover({
   selection,
   position,
   onDiveDeeper,
-  onQuickMeaning,
   onPin,
   onClose,
 }: SelectionPopoverProps) {
@@ -40,7 +38,7 @@ export default function SelectionPopover({
       <button type="button" className="selection-popover-close" onClick={onClose} aria-label="Close">
         ×
       </button>
-      <DiveActionButtons onDiveDeeper={onDiveDeeper} onQuickMeaning={onQuickMeaning} onPin={onPin} />
+      <DiveActionButtons onDiveDeeper={onDiveDeeper} onPin={onPin} />
       <p className="selection-popover-selection">"{selection}"</p>
     </div>
   );

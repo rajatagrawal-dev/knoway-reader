@@ -1,4 +1,4 @@
-import { cloneElement, Fragment, isValidElement, useMemo, useRef, useState, type ReactNode } from "react";
+import { cloneElement, Fragment, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -16,7 +16,6 @@ export interface DivePanelPaneProps {
   onOpenDive: (panelId: string) => void;
   onSendMessage: (panelId: string, content: string, onChunk?: (chunk: string) => void) => Promise<void>;
   onNestedDive: (request: { parentId: string; selection: string; contextText: string }) => void;
-  onQuickMeaning: (selection: string, contextText: string) => Promise<string>;
   onPin: (selection: string, contextText: string) => void;
 }
 
@@ -152,13 +151,25 @@ function renderTurnContent(content: string, components: Components): ReactNode {
   );
 }
 
+// Cycles "Thinking.", "Thinking..", "Thinking..." while we wait for the
+// first chunk of a streamed reply, so the pane doesn't look stalled.
+function ThinkingIndicator() {
+  const [dots, setDots] = useState(1);
+
+  useEffect(() => {
+    const id = setInterval(() => setDots((prev) => (prev % 3) + 1), 400);
+    return () => clearInterval(id);
+  }, []);
+
+  return <span>Thinking{".".repeat(dots)}</span>;
+}
+
 export default function DivePanelPane({
   panel,
   allPanels,
   onOpenDive,
   onSendMessage,
   onNestedDive,
-  onQuickMeaning,
   onPin,
 }: DivePanelPaneProps) {
   const [draft, setDraft] = useState("");
@@ -178,6 +189,14 @@ export default function DivePanelPane({
     setPending(false);
   };
 
+  // A reply is in flight whenever the newest turn is the reader's own —
+  // true for follow-ups sent from this pane's composer (which also flips
+  // `pending`), but also for a freshly opened dive, whose first message is
+  // sent by the caller before this component ever mounts, so `pending`
+  // alone would miss it.
+  const lastTurn = panel.turns[panel.turns.length - 1];
+  const awaitingReply = pending || lastTurn?.role === "user";
+
   return (
     <div className="dive-panel-pane">
       <header className="dive-panel-header">{panel.label}</header>
@@ -187,9 +206,9 @@ export default function DivePanelPane({
             {renderTurnContent(turn.content, markdownComponents)}
           </div>
         ))}
-        {pending ? (
+        {awaitingReply ? (
           <div className="dive-turn dive-turn-assistant dive-turn-streaming">
-            {streamingReply ? renderTurnContent(streamingReply, markdownComponents) : "…"}
+            {streamingReply ? renderTurnContent(streamingReply, markdownComponents) : <ThinkingIndicator />}
           </div>
         ) : null}
       </div>
@@ -201,7 +220,6 @@ export default function DivePanelPane({
             onNestedDive({ parentId: panel.id, selection: captured.text, contextText: captured.context });
             clear();
           }}
-          onQuickMeaning={() => onQuickMeaning(captured.text, captured.context)}
           onPin={() => {
             onPin(captured.text, captured.context);
             clear();

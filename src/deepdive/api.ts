@@ -1,6 +1,7 @@
 export interface DiveMessage {
   role: "user" | "assistant";
   content: string;
+  image?: { mediaType: string; data: string };
 }
 
 // Reads the backend's SSE stream (see server/app.js's /api/dive/stream),

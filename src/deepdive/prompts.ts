@@ -8,8 +8,13 @@ export function buildDiveSystem(
   const nested = parentPanel
     ? `\nThis is a deeper dive within: "${parentPanel.selection}".`
     : "";
+  const selectionDescription = panel.selectionImage
+    ? panel.selection
+      ? `this passage: "${panel.selection}" (see the attached image of the selected region)`
+      : "the region of the page shown in the attached image"
+    : `this passage: "${panel.selection}"`;
   return `You are a knowledgeable guide helping a reader understand a PDF titled "${fileName}".
-The reader selected this passage to dive deeper into: "${panel.selection}"${nested}
+The reader selected ${selectionDescription} to dive deeper into.${nested}
 
 Relevant context:
 """
@@ -37,5 +42,6 @@ export function buildQuickMeaningPrompt(selection: string, context: string): str
 }
 
 export function openingMessage(selection: string): string {
+  if (!selection) return "I'd like to dive deeper into this selected region (see the attached image).";
   return `I'd like to dive deeper into: "${selection}"`;
 }

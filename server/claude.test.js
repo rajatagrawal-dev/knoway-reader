@@ -10,9 +10,14 @@ function fakeSpawn(capture, lines) {
     capture.cmd = cmd;
     capture.args = args;
     capture.opts = opts;
+    capture.stdinWritten = "";
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
+    child.stdin = {
+      write: (chunk) => { capture.stdinWritten += chunk; },
+      end: () => {},
+    };
     child.kill = () => {};
     setImmediate(() => {
       for (const line of lines) child.stdout.emit("data", Buffer.from(line + "\n"));
@@ -107,6 +112,78 @@ test("a CLI error result rejects", async () => {
     fakeSpawn(capture, [JSON.stringify({ type: "result", is_error: true, result: "boom" })])
   );
   await assert.rejects(() => models.quickAnswer({ system: "G", prompt: "x" }), /boom/);
+});
+
+test("streamDiveReply sends an image via stdin stream-json when a message has one", async () => {
+  const capture = {};
+  const lines = [JSON.stringify({ type: "result", is_error: false, result: "it's a cat" })];
+  const models = createDiveModels(fakeSpawn(capture, lines));
+
+  const out = await models.streamDiveReply({
+    system: "SYS",
+    messages: [
+      { role: "user", content: "what is this?", image: { mediaType: "image/png", data: "AAAA" } },
+    ],
+    onText: () => {},
+  });
+
+  assert.equal(out, "it's a cat");
+  const a = capture.args;
+  assert.ok(a.includes("--input-format"));
+  assert.equal(a[a.indexOf("--input-format") + 1], "stream-json");
+  assert.equal(a[a.length - 1], "stream-json"); // --input-format stream-json, no flattened prompt positional arg
+  assert.equal(a.at(-2), "--input-format");
+
+  const sent = JSON.parse(capture.stdinWritten.trim());
+  assert.equal(sent.type, "user");
+  assert.equal(sent.message.role, "user");
+  assert.equal(sent.message.content[0].type, "text");
+  assert.equal(sent.message.content[0].text, "what is this?");
+  assert.deepEqual(sent.message.content[1], {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: "AAAA" },
+  });
+});
+
+test("streamDiveReply resends the image on every call, attached to the full history", async () => {
+  const capture = {};
+  const lines = [JSON.stringify({ type: "result", is_error: false, result: "ok" })];
+  const models = createDiveModels(fakeSpawn(capture, lines));
+
+  await models.streamDiveReply({
+    system: "SYS",
+    messages: [
+      { role: "user", content: "what is this?", image: { mediaType: "image/png", data: "AAAA" } },
+      { role: "assistant", content: "a cat" },
+      { role: "user", content: "what breed?" },
+    ],
+    onText: () => {},
+  });
+
+  const sent = JSON.parse(capture.stdinWritten.trim());
+  assert.match(sent.message.content[0].text, /Previous conversation:/);
+  assert.match(sent.message.content[0].text, /User: what is this\?/);
+  assert.match(sent.message.content[0].text, /Assistant: a cat/);
+  assert.match(sent.message.content[0].text, /User: what breed\?/);
+  assert.equal(sent.message.content[1].source.data, "AAAA");
+});
+
+test("streamDiveReply strips null bytes from argv strings before spawning", async () => {
+  // Node's execve rejects any argv string containing a NUL byte; pdf.js text
+  // extraction can emit one for a glyph with no font encoding mapping, and
+  // that lands straight in the system prompt.
+  const capture = {};
+  const models = createDiveModels(
+    fakeSpawn(capture, [JSON.stringify({ type: "result", is_error: false, result: "ok" })])
+  );
+  await models.streamDiveReply({
+    system: "before\u0000after",
+    messages: [{ role: "user", content: "hi\u0000there" }],
+    onText: () => {},
+  });
+  const a = capture.args;
+  assert.equal(a[a.indexOf("--system-prompt") + 1], "beforeafter");
+  assert.equal(a[a.length - 1], "hithere");
 });
 
 test("streamDiveReply rejects (does not crash) on a CLI error result", async () => {
