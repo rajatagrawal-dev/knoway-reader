@@ -11,6 +11,15 @@
 //    letters, superscripts, kets, an "=" sign) embedded in a sentence with
 //    no $ wrapping at all, and promotes the whole run to its own $$...$$
 //    block, so it reads as a formal display equation instead of clutter.
+//    An "=" isn't required when the run contains an unambiguous math-only
+//    signal (kets, √/\sqrt) — those never appear in ordinary prose, unlike
+//    a bare "=" or "|", so a state vector like "(|0⟩+|1⟩)/√2" mentioned
+//    with no equation around it still gets promoted.
+//  - convertUnicodeSqrt: the model sometimes writes a literal "√" instead
+//    of "\sqrt{...}", including inside spans it already wrapped in $...$.
+//    KaTeX renders raw "√" as a bare \surd glyph with no bar over its
+//    argument, which looks broken — so this rewrites "√2"/"√(x+y)" to
+//    "\sqrt{2}"/"\sqrt{x+y}" everywhere, before the $-wrapping passes run.
 //  - autoWrapCaretExponents: catches whatever's left — a standalone
 //    "base^exponent" mentioned in passing with no "=" nearby — and wraps
 //    just that piece as inline LaTeX so the exponent still renders as a
@@ -48,12 +57,32 @@ const TRIGGER = /[Ͱ-Ͽ⁰-₟⟨⟩|]/;
 const DIGIT_OR_SYMBOL = /[0-9Ͱ-Ͽ⁰-₟⟨⟩|]/;
 const LONE_OPERATOR = new Set(["-", "+", "*", "/", "="]);
 
+// Kets and \sqrt are unambiguous math-only signals (unlike a bare "=" or
+// "|", which can show up in prose or markdown tables) — their presence
+// alone is enough to promote a run, no "=" required.
+const STRONG_MATH_SIGNAL = /⟨|⟩|\\sqrt/;
+
 const PROTECTED_SPAN = /(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$|`[^`\n]+?`)/g;
+
+// Matches a literal Unicode "√" followed by its argument — either a
+// parenthesized group or a run of letters/digits — so "√2" and "√(x+y)"
+// become "\sqrt{2}" and "\sqrt{x+y}". Runs on the raw markdown (including
+// inside $...$/$$...$$ the model already wrote) since it never adds or
+// removes a "$", so it can't desync the dollar-balance check.
+const UNICODE_SQRT = /√(\([^()\n]{1,80}\)|[\p{L}\p{N}]{1,20})/gu;
+
+export function convertUnicodeSqrt(markdown: string): string {
+  return markdown.replace(UNICODE_SQRT, (_match, arg: string) => {
+    const inner = arg.startsWith("(") ? arg.slice(1, -1) : arg;
+    return `\\sqrt{${inner}}`;
+  });
+}
 
 function isEquationToken(token: string): boolean {
   if (LONE_OPERATOR.has(token)) return true;
   if (DIGIT_OR_SYMBOL.test(token)) return true;
   if (token.includes("=")) return true;
+  if (STRONG_MATH_SIGNAL.test(token)) return true;
   const bare = token.replace(/[^A-Za-z]/g, "").toLowerCase();
   return Boolean(bare && MATH_FUNCTION_WORDS.has(bare));
 }
@@ -102,7 +131,7 @@ function splitTrailingPunctuation(word: string): { core: string; trail: string }
 }
 
 function promoteInlineEquationsInSegment(text: string): string {
-  if (!text.includes("=")) return text;
+  if (!text.includes("=") && !STRONG_MATH_SIGNAL.test(text)) return text;
 
   const words = text.split(" ");
   const runs: { start: number; end: number }[] = [];
@@ -115,12 +144,16 @@ function promoteInlineEquationsInSegment(text: string): string {
     let j = i;
     let hasEquals = false;
     let hasTrigger = false;
+    let hasStrong = false;
     while (j < words.length && isEquationToken(words[j])) {
       if (words[j].includes("=")) hasEquals = true;
       if (TRIGGER.test(words[j])) hasTrigger = true;
+      if (STRONG_MATH_SIGNAL.test(words[j])) hasStrong = true;
       j++;
     }
-    if (hasEquals && hasTrigger && j - i >= 2) runs.push({ start: i, end: j });
+    if (hasStrong || (hasEquals && hasTrigger && j - i >= 2)) {
+      runs.push({ start: i, end: j });
+    }
     i = j;
   }
   if (runs.length === 0) return text;
@@ -201,6 +234,10 @@ function hasBalancedDollarDelimiters(markdown: string): boolean {
 }
 
 export function normalizeMathNotation(markdown: string): string {
+  // Fix literal "√" first — it never touches a "$", so it's safe to run
+  // before the balance check and applies equally to already-$-wrapped math
+  // (which the promotion passes below leave untouched) and bare prose.
+  markdown = convertUnicodeSqrt(markdown);
   // Check balance on the *raw* content before running any promotion pass.
   // Those passes assume $ signs are already sanely paired — they use them
   // to identify "this span is already math, leave it alone." If a
