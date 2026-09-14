@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 
-// PdfHighlighterApp talks to Claude through the local `claude` CLI (Claude Code),
+// MuseReader talks to Claude through the local `claude` CLI (Claude Code),
 // not the HTTP API — so it uses your Claude subscription auth instead of an
 // ANTHROPIC_API_KEY / API credits. Dive replies stream token-by-token via
 // stream-json; quick-meaning answers are a single blocking call.

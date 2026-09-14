@@ -1,12 +1,14 @@
+import type { ReactNode } from "react";
 import {
   AreaHighlight,
   FreetextHighlight,
+  MonitoredHighlightContainer,
   TextHighlight,
   useHighlightContainerContext,
   usePdfHighlighterContext,
 } from "react-pdf-highlighter-plus";
-import { useHighlightCommentControls } from "./HighlightPopup";
-import DiveBadge from "../deepdive/DiveBadge";
+import { useNoteControl } from "./NoteControl";
+import DiveControl from "../deepdive/DiveControl";
 import type { CommentedHighlight } from "../types";
 
 interface HighlightContainerProps {
@@ -16,12 +18,18 @@ interface HighlightContainerProps {
   ) => void;
   deleteHighlight: (highlightId: string) => void;
   onOpenDive: (divePanelId: string) => void;
+  onStartDive: (
+    highlightId: string,
+    content: CommentedHighlight["content"],
+    pageNumber: number,
+  ) => void;
 }
 
 export default function HighlightContainer({
   editHighlight,
   deleteHighlight,
   onOpenDive,
+  onStartDive,
 }: HighlightContainerProps) {
   const {
     highlight,
@@ -33,31 +41,52 @@ export default function HighlightContainer({
 
   const { toggleEditInProgress } = usePdfHighlighterContext();
 
-  const commentControls = useHighlightCommentControls(
-    highlight,
-    (edit) => editHighlight(highlight.id, edit),
-    highlight.type === "text" ? "TextHighlight" : "AreaHighlight",
+  const commentControls = useNoteControl({
+    comment: highlight.comment,
+    onCommit: (comment) => editHighlight(highlight.id, { comment }),
+    classPrefix: highlight.type === "text" ? "TextHighlight" : "AreaHighlight",
+  });
+
+  const diveControl = (
+    <DiveControl
+      divePanelId={highlight.divePanelId}
+      onOpen={onOpenDive}
+      onStart={() => onStartDive(highlight.id, highlight.content, highlight.position.boundingRect.pageNumber)}
+    />
   );
 
-  const diveBadge = highlight.divePanelId ? (
-    <DiveBadge onClick={() => onOpenDive(highlight.divePanelId!)} />
+  const commentTip = highlight.comment ? (
+    <div className="highlight-comment-tooltip">{highlight.comment}</div>
   ) : null;
 
+  const withCommentTip = (element: ReactNode) =>
+    commentTip ? (
+      <MonitoredHighlightContainer
+        highlightTip={{ position: highlight.position, content: commentTip }}
+      >
+        {element}
+      </MonitoredHighlightContainer>
+    ) : (
+      element
+    );
+
   if (highlight.type === "text") {
-    return (
+    return withCommentTip(
       <TextHighlight
         highlight={highlight}
         isScrolledTo={isScrolledTo}
+        highlightColor={highlight.highlightColor}
+        highlightStyle={highlight.highlightStyle}
         onStyleChange={(style) => editHighlight(highlight.id, style)}
         onDelete={() => deleteHighlight(highlight.id)}
         extraButtons={
           <>
             {commentControls.button}
-            {diveBadge}
+            {diveControl}
           </>
         }
         extraPanel={commentControls.panel}
-      />
+      />,
     );
   }
 
@@ -95,10 +124,11 @@ export default function HighlightContainer({
     );
   }
 
-  return (
+  return withCommentTip(
     <AreaHighlight
       highlight={highlight}
       isScrolledTo={isScrolledTo}
+      highlightColor={highlight.highlightColor}
       onStyleChange={(style) => editHighlight(highlight.id, style)}
       onDelete={() => deleteHighlight(highlight.id)}
       onChange={(boundingRect) => {
@@ -118,10 +148,10 @@ export default function HighlightContainer({
       extraButtons={
         <>
           {commentControls.button}
-          {diveBadge}
+          {diveControl}
         </>
       }
       extraPanel={commentControls.panel}
-    />
+    />,
   );
 }

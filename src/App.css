@@ -1,7 +1,14 @@
+/* overflow: hidden here is the backstop for the whole app: nothing below —
+   an oversized toolbar, a PDF page zoomed past the viewport, a long TOC
+   entry — should ever be able to force the *page itself* to scroll or grow
+   past the window. Anything that can legitimately get too big for its box
+   (the PDF viewer, sidebar lists, the toolbar's own button row) scopes its
+   own overflow internally instead; see .toolbar-actions and .PdfHighlighter. */
 .app-shell {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
 }
 
 .toolbar {
@@ -13,11 +20,28 @@
   background: var(--bg);
   color: var(--text);
   border-bottom: 1px solid var(--rule);
+  flex-wrap: nowrap;
+}
+
+/* The title is the toolbar element that gives up space first: an outsized
+   flex-shrink factor means it absorbs nearly all of any width deficit and
+   truncates (rather than wrapping to a second line, which would grow the
+   toolbar's — and so the sidebar's — height) before .toolbar-actions below
+   is forced to shrink at all. */
+.toolbar-title-group {
+  flex-grow: 1;
+  flex-shrink: 999;
+  flex-basis: auto;
+  min-width: 0;
 }
 
 .toolbar-title {
+  display: block;
   font-size: 1.05rem;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toolbar-group {
@@ -25,6 +49,29 @@
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+/* Never wraps to extra rows (that would grow the toolbar's height, and so
+   shrink the sidebar/PDF view below it) — the title above gives way first,
+   shrinking to nothing before this is touched at all. Only once the title
+   has nothing left to give does this itself get narrower than its buttons'
+   combined width, at which point it scrolls horizontally *within itself*
+   (min-width: 0 is what lets it shrink that far — a flex item's default
+   min-width: auto would otherwise refuse to shrink below content size and
+   push the overflow onto .app-shell's clip instead of a reachable scrollbar
+   here) rather than the whole page ever needing to scroll. */
+.toolbar-actions {
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.toolbar-actions > * {
+  flex-shrink: 0;
 }
 
 .toolbar-actions button {
@@ -53,6 +100,63 @@
    would do, under-sizing the button instead). */
 .toolbar-actions button svg {
   vertical-align: middle;
+}
+
+.view-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.view-controls button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 4px;
+}
+
+.view-controls button:hover {
+  background: var(--panel-bg);
+}
+
+.view-controls button.active {
+  background: var(--link-tint);
+  border-color: var(--link);
+  color: var(--link);
+}
+
+.view-controls button.view-controls-zoom {
+  width: auto;
+  min-width: 3.2rem;
+  padding: 0 0.4rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.view-controls-zoom-input {
+  width: 3.2rem;
+  height: 30px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 4px;
+  text-align: center;
+  font: inherit;
+  font-size: 0.8rem;
+  -moz-appearance: textfield;
+}
+
+.view-controls-zoom-input::-webkit-outer-spin-button,
+.view-controls-zoom-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .search-bar {
@@ -186,7 +290,6 @@
   color: var(--text);
 }
 
-.sidebar-file,
 .sidebar-count {
   margin: 0;
   color: var(--muted);
@@ -203,14 +306,75 @@
   padding: 0.25rem 0;
 }
 
-/* react-pdf-highlighter-plus's DocumentOutline is themed through these CSS
-   variables rather than classNames/styles props (see its source), so scope
-   them to the app's own palette here. */
-.toc-outline {
-  --lp-text: var(--text);
-  --lp-muted: var(--muted);
-  --lp-accent: var(--link);
-  --lp-hover: var(--link-tint);
+.toc-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  margin: 1px 4px;
+  cursor: pointer;
+}
+
+.toc-item-row:hover {
+  background: var(--link-tint);
+}
+
+.toc-item-row--active {
+  background: var(--link-tint);
+}
+
+.toc-item-row--active .toc-item-title,
+.toc-item-row--active .toc-item-page {
+  color: var(--link);
+}
+
+.toc-item-expand,
+.toc-item-expand-spacer {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toc-item-expand {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  border-radius: 3px;
+}
+
+.toc-item-expand:hover {
+  background: var(--border-soft);
+}
+
+.toc-item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.toc-item-title--bold {
+  font-weight: 700;
+}
+
+.toc-item-title--italic {
+  font-style: italic;
+}
+
+.toc-item-page {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 20px;
+  text-align: right;
 }
 
 .sidebar-empty {
@@ -284,29 +448,50 @@
   font-size: 0.8rem;
 }
 
-.sidebar-footer {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--border-soft);
-}
-
-.sidebar-footer button {
-  flex: 1;
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 4px;
-  padding: 0.5rem 0.75rem;
-}
-
-.sidebar-footer button.danger {
-  color: var(--danger);
-  border-color: #e3c9c9;
-}
-
+/* min-width: 0 overrides the grid item's default min-width: auto, which
+   otherwise refuses to shrink below its content's intrinsic width — without
+   it, a PDF page zoomed wider than this column would grow the whole grid
+   track (and so the page) instead of scrolling inside .PdfHighlighter,
+   where the library's own overflow: auto already expects to contain it. */
 .viewer {
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Placeholder that PersistentPdfPane reparents the always-mounted PdfPane's
+   DOM into, so it fills whichever slot (workspace or Deep Dive root pane) is
+   currently rendered, exactly as if PdfPane were rendered inline here. */
+.pdf-pane-slot {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pdf-pane-host {
+  height: 100%;
+  width: 100%;
+}
+
+/* Keep-alive parking spot for the main PdfPane when it's not part of the
+   current Deep Dive split view (nested more than one level deep). Needs
+   real, non-zero dimensions — a 0x0 or display:none container collapses
+   pdf.js's viewer to clientHeight 0, which corrupts its internal
+   current-page tracking and shows up later as a scroll reset to the top
+   once the pane is reparented back into a visible slot. `visibility: hidden`
+   has the same effect for pdf.js's own page-visibility tracking (it stops
+   updating which page is "current" while hidden), so this is tucked behind
+   the app's opaque content via z-index instead of actually being hidden. */
+.pdf-pane-offscreen-host {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .pdf-pane-viewer {
@@ -356,19 +541,28 @@
   line-height: 1.6;
 }
 
-.expandable-tip,
-.comment-form {
+/* Mirrors the library's own highlight toolbar (.TextHighlight__toolbar) so
+   the tip shown for a fresh selection is built from the exact same button
+   classes (color trigger, style/copy buttons, comment panel, color menu...)
+   as the toolbar shown when clicking an existing highlight — same controls,
+   same look — rather than a bespoke, differently-styled box. Unlike that
+   toolbar this one renders inline instead of floating absolutely: it's
+   already positioned by the library's tip-container, and (having no
+   existing highlight to hide behind) it should just always be visible. */
+.expandable-tip__toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 220px;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--rphp-toolbar-bg, #1c1b18);
+  border-radius: var(--rphp-radius, 9px);
+  box-shadow: var(--rphp-shadow-lg, 0 8px 24px -6px rgba(28, 27, 24, 0.22));
 }
 
 /* Primary/CTA buttons across the app share one restrained treatment: an
    outlined button in the muted link color rather than a solid saturated
    fill, to match the reference paper's understated palette. */
 .upload-card button,
-.comment-form button,
 .dive-panel-composer button {
   border: 1px solid var(--link);
   background: var(--bg);
@@ -379,18 +573,8 @@
 }
 
 .upload-card button:hover,
-.comment-form button:hover,
 .dive-panel-composer button:hover {
   background: var(--link-tint);
-}
-
-.comment-form textarea {
-  width: 100%;
-  resize: vertical;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 0.5rem;
-  font: inherit;
 }
 
 @media (max-width: 900px) {
@@ -400,63 +584,16 @@
   }
 }
 
-.dive-action-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.dive-action-row {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-}
-
-.dive-action-row button {
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 4px;
-  padding: 0.35rem 0.6rem;
-  font-size: 0.8rem;
-}
-
-.dive-action-row button:disabled {
-  color: var(--muted);
-  cursor: default;
-}
-
-.selection-popover {
+/* Dive-panel equivalent of react-pdf-highlighter's own tip-container
+   positioning: DiveSelectionTip has no host container to be placed by (it
+   highlights plain AI-dialogue text, not a PDF selection), so it positions
+   itself the way the old selection-popover did — position: fixed at the
+   captured selection's on-screen coordinates — while reusing the same
+   .expandable-tip__toolbar/.TextHighlight__* classes for its contents so it
+   looks identical to the main-text tip. */
+.dive-selection-tip {
   position: fixed;
   z-index: 40;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 12px 30px rgba(26, 26, 26, 0.14);
-  padding: 0.6rem;
-  min-width: 260px;
-  max-width: 320px;
-}
-
-.selection-popover-close {
-  float: right;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 1rem;
-  padding: 0.1rem 0.4rem;
-  line-height: 1;
-}
-
-.selection-popover-selection {
-  margin: 0.4rem 0 0;
-  font-size: 0.75rem;
-  color: var(--muted);
-  font-style: italic;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  clear: both;
 }
 
 .dive-badge {
@@ -478,7 +615,8 @@
    dark-toolbar tokens, not this app's palette — rather than the blue pill
    used in the sidebar/selection popover. */
 .TextHighlight__toolbar .dive-badge,
-.AreaHighlight__toolbar .dive-badge {
+.AreaHighlight__toolbar .dive-badge,
+.expandable-tip__toolbar .dive-badge {
   height: 26px;
   padding: 0 8px;
   border: none;
@@ -489,9 +627,15 @@
 }
 
 .TextHighlight__toolbar .dive-badge:hover,
-.AreaHighlight__toolbar .dive-badge:hover {
+.AreaHighlight__toolbar .dive-badge:hover,
+.expandable-tip__toolbar .dive-badge:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
+}
+
+.expandable-tip__toolbar .dive-badge:disabled {
+  color: rgba(239, 236, 229, 0.5);
+  cursor: default;
 }
 
 /* The library sizes comment/style/copy/delete buttons as fixed 26x26 icon
@@ -506,59 +650,155 @@
   white-space: nowrap;
 }
 
+/* Hover tooltip for a highlight's comment. Reuses the library's own
+   .TextHighlight__comment-panel tokens so it matches the panel shown while
+   editing a comment, rather than introducing a new visual style. */
+.highlight-comment-tooltip {
+  max-width: 320px;
+  padding: 8px 10px;
+  background: var(--rphp-surface, #ffffff);
+  border: 1px solid var(--rphp-border, #e6e2da);
+  border-radius: var(--rphp-radius, 9px);
+  box-shadow: var(--rphp-shadow-lg, 0 8px 24px -6px rgba(28, 27, 24, 0.22));
+  color: var(--rphp-text, #1c1b18);
+  font-family: var(--font-serif);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .sidebar-item-type-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
 
-.sidebar-pins {
-  border-top: 1px solid var(--border-soft);
+/* A row with no onOpen (currently just pins, which have no location to
+   jump to) renders the same card as a clickable one, minus the pointer
+   affordance — reuses .sidebar-item-main's layout instead of a bespoke
+   style so every annotation kind lines up in the unified list. */
+.sidebar-item-main--static {
+  cursor: default;
+}
+
+.annotations-filter-bar {
   padding: 0.75rem 1rem;
 }
 
-.sidebar-pins h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+.annotations-filters {
+  position: relative;
+  display: inline-block;
 }
 
-.sidebar-empty-pins {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.85rem;
+.annotations-filters-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.sidebar-pins-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.annotations-filters-toggle:hover {
+  background: var(--panel-bg);
+  border-color: var(--muted);
+}
+
+.annotations-filters-chevron {
+  transition: transform 0.15s ease;
+}
+
+.annotations-filters-toggle[aria-expanded="true"] .annotations-filters-chevron {
+  transform: rotate(180deg);
+}
+
+.annotations-filters-toggle.active {
+  border-color: var(--link);
+  background: var(--link-tint);
+  color: var(--link);
+  font-weight: 600;
+}
+
+.annotations-filters-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 210px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(26, 26, 26, 0.14);
+  padding: 0.4rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.05rem;
 }
 
-.sidebar-pin {
+.annotations-filters-menu-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
   font-size: 0.85rem;
+  line-height: 1.2;
   color: var(--text);
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
 }
 
-.sidebar-pin-delete {
+.annotations-filters-menu-item input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--link);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.annotations-filters-menu-item:hover {
+  background: var(--panel-bg);
+}
+
+.annotations-filters-menu-item.disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.annotations-filters-menu-item.disabled input[type="checkbox"] {
+  cursor: default;
+}
+
+.annotations-filters-menu-item.disabled:hover {
+  background: transparent;
+}
+
+.annotations-filters-menu-divider {
+  height: 1px;
+  margin: 0.3rem 0.2rem;
+  background: var(--border-soft);
+}
+
+.annotations-filters-menu-clear {
   border: 0;
   background: transparent;
-  color: var(--danger);
-  font-size: 0.75rem;
-  flex-shrink: 0;
+  color: var(--link);
+  font-size: 0.8rem;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.annotations-filters-menu-clear:hover {
+  background: var(--link-tint);
 }
 
 .dive-panel-pane {
@@ -713,13 +953,24 @@
 
 .dive-turn .katex-display {
   margin: 0.7em 0;
-  padding: 0.5em 0;
+  padding: 0.9em 0 0.5em;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
 }
 
 .dive-turn .katex {
   font-size: 1.05em;
+}
+
+/* KaTeX renders a visually-hidden MathML copy of every equation (for screen
+   readers) as a real, unclipped-for-selection DOM node sitting right next to
+   the visible glyphs. Dragging a selection across rendered math therefore
+   grabs both the visible text AND the raw TeX source from that hidden copy,
+   producing garbled text (stray "\beta", "$$", etc.) wherever that selection
+   is reused — e.g. as the opening message of a nested dive. Excluding it
+   from selection keeps captured text limited to what's actually visible. */
+.dive-turn .katex-mathml {
+  user-select: none;
 }
 
 /* If a single equation still fails to parse despite the normalization
@@ -739,15 +990,58 @@
   overflow-x: auto;
 }
 
+/* Marks text that was the origin of a nested dive panel — same highlighted
+   look as .dive-turn-highlight (and the main PDF's own highlights) rather
+   than an underline, so "this text was dived into" reads the same way
+   "this text is highlighted" does everywhere else in the app. Left as its
+   own class (not merged into .dive-turn-highlight) since it stays a plain
+   button with no color/style/comment of its own. */
 .dive-turn-marker {
   border: 0;
-  background: transparent;
-  padding: 0;
+  background-color: rgba(255, 226, 143, 1);
+  border-radius: 2px;
+  padding: 0 1px;
   font: inherit;
   color: inherit;
-  text-decoration: underline;
-  text-decoration-style: dotted;
   cursor: pointer;
+}
+
+/* A highlight placed on AI dialogue text (DiveSelectionTip's color/style
+   menu, or DiveHighlightEditTip for an existing one). Colors/backgrounds
+   are set inline per-highlight (see highlightMarkStyle in
+   DiveHighlightMark); this just resets the browser's default <mark>
+   styling so those inline values are the only source of truth, matching
+   the PDF TextHighlight look, and gives it a positioning context for its
+   hover comment tooltip. Clickable, like a PDF highlight, to open the edit
+   toolbar (DiveHighlightEditTip). */
+.dive-turn-highlight {
+  position: relative;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer;
+}
+
+/* Same accent ring the PDF highlights use for --selected/--scrolledTo (see
+   TextHighlight.css), so a note opened from the annotations panel reads as
+   "found" the same way a jumped-to PDF highlight does. */
+.dive-turn-highlight--scrolledTo,
+.dive-turn-highlight--editing {
+  box-shadow:
+    0 0 0 2px var(--rphp-accent, #5b50e6),
+    0 0 0 5px rgba(91, 80, 230, 0.25);
+}
+
+/* Positioned above the highlight, like the PDF highlight's own hover
+   comment tip (MonitoredHighlightContainer's highlightTip) — reuses the
+   same .highlight-comment-tooltip surface/colors so both read as the same
+   control, rather than the browser's native (black/OS-themed) title
+   tooltip. */
+.dive-turn-highlight-tooltip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
 }
 
 .dive-panel-composer {

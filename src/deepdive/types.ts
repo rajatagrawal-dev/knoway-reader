@@ -28,6 +28,26 @@ export interface Pin {
   createdAt: string;
 }
 
+// A highlight placed on AI dialogue text inside a dive panel. Unlike a PDF
+// CommentedHighlight (react-pdf-highlighter-plus/Highlight), there is no
+// page/boundingRect position to anchor to — the panel's turns are plain
+// markdown strings re-rendered on every render, so the highlight is
+// re-located by matching `text` against the rendered content instead (see
+// DivePanelPane's annotation wrapping).
+export interface DiveHighlight {
+  id: string;
+  panelId: string;
+  text: string;
+  comment?: string;
+  highlightColor?: string;
+  highlightStyle?: "highlight" | "underline" | "strikethrough";
+  // Set once "Dive deeper" has been used from this highlight, so reopening
+  // it (via DiveControl) returns to that same nested dive instead of
+  // starting a new one each time — mirrors CommentedHighlight.divePanelId.
+  divePanelId?: string;
+  createdAt: string;
+}
+
 export interface ChainEntry {
   id: string | null; // null = the PDF root
   label: string;

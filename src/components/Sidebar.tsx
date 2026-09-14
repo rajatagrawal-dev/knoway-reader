@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { CommentedHighlight } from "../types";
-import type { Pin } from "../deepdive/types";
+import type { DiveHighlight, DivePanel, Pin } from "../deepdive/types";
 import AnnotationsPanel from "./AnnotationsPanel";
 import TableOfContentsPanel from "./TableOfContentsPanel";
 
@@ -10,17 +10,19 @@ export type SidebarPanel = "annotations" | "toc";
 interface SidebarProps {
   highlights: CommentedHighlight[];
   pins: Pin[];
-  fileName: string;
+  panels: DivePanel[];
+  diveHighlights: DiveHighlight[];
   scrolledToHighlightId: string | null;
   onJumpToHighlight: (highlight: CommentedHighlight) => void;
   onDeleteHighlight: (highlight: CommentedHighlight) => void;
-  onClearHighlights: () => void;
-  onOpenDive: (divePanelId: string) => void;
+  onOpenDiveFromHighlight: (highlight: CommentedHighlight) => void;
   onDeletePin: (pinId: string) => void;
-  onUploadNew: () => void;
+  onOpenDiveHighlight: (highlight: DiveHighlight) => void;
+  onDeleteDiveHighlight: (highlightId: string) => void;
   activePanel: SidebarPanel | null;
   onSelectPanel: (panel: SidebarPanel) => void;
   pdfDocument: PDFDocumentProxy | null;
+  pageLabels: string[] | null;
   currentPage: number;
   onGoToPage: (pageNumber: number) => void;
 }
@@ -59,17 +61,19 @@ const RAIL_ITEMS: { id: SidebarPanel; label: string; icon: ReactNode }[] = [
 export default function Sidebar({
   highlights,
   pins,
-  fileName,
+  panels,
+  diveHighlights,
   scrolledToHighlightId,
   onJumpToHighlight,
   onDeleteHighlight,
-  onClearHighlights,
-  onOpenDive,
+  onOpenDiveFromHighlight,
   onDeletePin,
-  onUploadNew,
+  onOpenDiveHighlight,
+  onDeleteDiveHighlight,
   activePanel,
   onSelectPanel,
   pdfDocument,
+  pageLabels,
   currentPage,
   onGoToPage,
 }: SidebarProps) {
@@ -106,20 +110,25 @@ export default function Sidebar({
             <AnnotationsPanel
               highlights={highlights}
               pins={pins}
-              fileName={fileName}
+              panels={panels}
+              diveHighlights={diveHighlights}
               scrolledToHighlightId={scrolledToHighlightId}
               onJumpToHighlight={onJumpToHighlight}
               onDeleteHighlight={onDeleteHighlight}
-              onClearHighlights={onClearHighlights}
-              onOpenDive={onOpenDive}
+              onOpenDiveFromHighlight={onOpenDiveFromHighlight}
               onDeletePin={onDeletePin}
-              onUploadNew={onUploadNew}
+              onOpenDiveHighlight={onOpenDiveHighlight}
+              onDeleteDiveHighlight={onDeleteDiveHighlight}
+              pageLabels={pageLabels}
+              pdfDocument={pdfDocument}
+              currentPage={currentPage}
             />
           ) : (
             <TableOfContentsPanel
               pdfDocument={pdfDocument}
               currentPage={currentPage}
               goToPage={onGoToPage}
+              pageLabels={pageLabels}
             />
           )}
         </div>

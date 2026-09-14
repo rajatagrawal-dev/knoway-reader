@@ -4,6 +4,7 @@ import {
   PdfLoader,
   type GhostHighlight,
   type PdfHighlighterUtils,
+  type PdfScaleValue,
   type ScaledPosition,
 } from "react-pdf-highlighter-plus";
 import type { PDFDocumentProxy } from "pdfjs-dist";
@@ -40,16 +41,37 @@ export interface PdfPaneProps {
   areaMode: boolean;
   freetextMode: boolean;
   onFreetextClick: (position: ScaledPosition) => void;
-  addHighlight: (highlight: GhostHighlight, comment: string) => void;
+  addHighlight: (
+    highlight: GhostHighlight,
+    comment: string,
+    style?: Pick<CommentedHighlight, "highlightColor" | "highlightStyle">,
+  ) => void;
   editHighlight: (id: string, edit: Partial<CommentedHighlight>) => void;
   deleteHighlight: (id: string) => void;
   utilsRef: (utils: PdfHighlighterUtils) => void;
   onOpenDive: (divePanelId: string) => void;
   onDiveDeeper: (request: { highlight: GhostHighlight; contextText: string }) => void;
+  onDiveIntoExisting: (request: {
+    highlightId: string;
+    content: GhostHighlight["content"];
+    contextText: string;
+  }) => void;
   onPin: (selection: string, contextText: string) => void;
   initialPage?: number;
   onPageChange?: (pageNumber: number) => void;
   onDocumentReady?: (pdfDocument: PDFDocumentProxy) => void;
+  // A highlight to scroll to precisely once this mounts (e.g. the anchor
+  // point a dive annotation traces back to) — takes priority over
+  // initialPage's plain page-restore when set, since it already implies the
+  // right page plus the exact position on it.
+  scrollToHighlightId?: string | null;
+  // Controlled zoom level ("auto" for fit-width, or a fixed scale factor).
+  // Must stay controlled rather than set imperatively on the viewer — see
+  // App.tsx's pdfScaleValue comment for why.
+  pdfScaleValue?: PdfScaleValue;
+  // Fired when the user changes zoom via pinch/ctrl+wheel, so pdfScaleValue
+  // can be kept in sync with gesture-driven zoom too.
+  onZoomChange?: (scale: number) => void;
 }
 
 export default function PdfPane({
@@ -64,30 +86,44 @@ export default function PdfPane({
   utilsRef,
   onOpenDive,
   onDiveDeeper,
+  onDiveIntoExisting,
   onPin,
   initialPage,
   onPageChange,
   onDocumentReady,
+  scrollToHighlightId,
+  pdfScaleValue,
+  onZoomChange,
 }: PdfPaneProps) {
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
 
   // PDF.js transfers (detaches) the Uint8Array's underlying ArrayBuffer to its
-  // worker on load. PdfPane remounts whenever the app switches between the
-  // normal layout and the Deep Dive split view, so a clone is taken once per
-  // mount here — the original in App.tsx state is never touched and stays
-  // usable for the next remount.
+  // worker on load. PdfPane is only ever truly mounted once, on initial PDF
+  // load (see PersistentPdfPane, which keeps it alive and reparents its DOM
+  // instead of remounting it), so a clone is taken once here — the original
+  // in App.tsx state is never touched.
   const [stableSource] = useState<PdfSource>(() =>
     source instanceof Uint8Array ? source.slice() : source,
   );
 
   const highlighterUtilsRef = useRef<PdfHighlighterUtils | null>(null);
 
-  // Snapshot the page to restore only once, at mount. `initialPage` itself
+  // Snapshot the page to restore only once, at PdfPane's one real mount
+  // (initial PDF load — see PersistentPdfPane). `initialPage` itself
   // keeps changing after that — it's fed by `onPageChange`, which the
   // library fires on every ordinary page turn while the user scrolls — so
   // depending on the live prop here would re-arm these corrective scrolls
   // on every page change and yank the view back to a stale page mid-scroll.
   const [initialPageAtMount] = useState(initialPage);
+
+  // Snapshot both the target id and the highlight it resolves to, once, at
+  // mount — same rationale as initialPageAtMount below: scrolledToHighlightId
+  // keeps changing afterward (e.g. cleared by other jumps), and reacting to
+  // those later changes would yank the view around instead of only landing
+  // once on whatever was requested when this pane first appeared.
+  const [scrollToHighlightAtMount] = useState(() =>
+    scrollToHighlightId ? (highlights.find((h) => h.id === scrollToHighlightId) ?? null) : null,
+  );
 
   // The library's own initialPage mechanism "settles" once its internal
   // currentPageNumber counter matches the target — but that counter is set
@@ -102,6 +138,11 @@ export default function PdfPane({
   // on a later call — cheap and harmless once we're already on the right
   // page, since re-scrolling to the current page is a no-op.
   useEffect(() => {
+    // scrollToHighlightAtMount's own effect below already lands on (and
+    // keeps correcting toward) the right page as part of scrolling to the
+    // exact highlight — running this plain page-restore alongside it would
+    // just fight over the scroll position on every retry tick.
+    if (scrollToHighlightAtMount) return;
     if (!initialPageAtMount || initialPageAtMount <= 1) return;
     let cancelled = false;
     const timeouts = [500, 1200, 2200, 3500, 5000, 7000].map((delay) =>
@@ -118,7 +159,29 @@ export default function PdfPane({
       cancelled = true;
       timeouts.forEach(window.clearTimeout);
     };
-  }, [initialPageAtMount]);
+  }, [initialPageAtMount, scrollToHighlightAtMount]);
+
+  // Same settling problem as the page-restore above, applied to scrolling
+  // precisely to a highlight (e.g. the point in the main text a dive
+  // annotation traces back to) instead of just its page.
+  useEffect(() => {
+    if (!scrollToHighlightAtMount) return;
+    let cancelled = false;
+    const timeouts = [500, 1200, 2200, 3500, 5000, 7000].map((delay) =>
+      window.setTimeout(() => {
+        if (cancelled) return;
+        try {
+          highlighterUtilsRef.current?.scrollToHighlight(scrollToHighlightAtMount);
+        } catch {
+          // best-effort correction; nothing to do if it throws
+        }
+      }, delay),
+    );
+    return () => {
+      cancelled = true;
+      timeouts.forEach(window.clearTimeout);
+    };
+  }, [scrollToHighlightAtMount]);
 
   return (
     <div className="pdf-pane-viewer">
@@ -141,6 +204,8 @@ export default function PdfPane({
                 onFreetextClick={onFreetextClick}
                 initialPage={initialPage}
                 onPageChange={onPageChange}
+                pdfScaleValue={pdfScaleValue}
+                onZoomChange={onZoomChange}
                 selectionTip={
                   <ExpandableTip
                     addHighlight={addHighlight}
@@ -167,6 +232,10 @@ export default function PdfPane({
                   editHighlight={editHighlight}
                   deleteHighlight={deleteHighlight}
                   onOpenDive={onOpenDive}
+                  onStartDive={async (highlightId, content, pageNumber) => {
+                    const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
+                    onDiveIntoExisting({ highlightId, content, contextText });
+                  }}
                 />
               </PdfHighlighter>
             </>

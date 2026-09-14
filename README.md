@@ -1,4 +1,4 @@
-# PDF Highlighter App
+# MuseReader
 
 A simple React + TypeScript app for uploading PDFs and annotating them with [react-pdf-highlighter-plus](https://www.npmjs.com/package/react-pdf-highlighter-plus).
 

@@ -1,27 +1,47 @@
-import type { DivePanel } from "./types";
+import type { RefObject } from "react";
+import type { DiveHighlight, DivePanel } from "./types";
 import { ancestorChain, paneWindow, panelById } from "./tree";
 import DivePanelPane from "./DivePanelPane";
-import PdfPane, { type PdfPaneProps } from "./PdfPane";
 
 export interface DeepDiveViewProps {
   panels: DivePanel[];
+  diveHighlights: DiveHighlight[];
+  scrolledToDiveHighlightId: string | null;
   focusId: string;
   rootLabel: string;
   onFocusChange: (id: string | null) => void;
-  pdfPaneProps: PdfPaneProps;
+  rootSlotRef: RefObject<HTMLDivElement>;
   onSendMessage: (panelId: string, content: string, onChunk?: (chunk: string) => void) => Promise<void>;
   onNestedDive: (request: { parentId: string; selection: string; contextText: string }) => void;
+  onAddHighlight: (
+    panelId: string,
+    text: string,
+    comment: string,
+    style?: Pick<DiveHighlight, "highlightColor" | "highlightStyle">,
+  ) => void;
+  onEditHighlight: (
+    highlightId: string,
+    edit: Partial<Pick<DiveHighlight, "highlightColor" | "highlightStyle" | "comment" | "divePanelId">>,
+  ) => void;
+  onDeleteHighlight: (highlightId: string) => void;
+  onDiveFromHighlight: (highlight: DiveHighlight, contextText: string) => void;
   onPin: (selection: string, contextText: string) => void;
 }
 
 export default function DeepDiveView({
   panels,
+  diveHighlights,
+  scrolledToDiveHighlightId,
   focusId,
   rootLabel,
   onFocusChange,
-  pdfPaneProps,
+  rootSlotRef,
   onSendMessage,
   onNestedDive,
+  onAddHighlight,
+  onEditHighlight,
+  onDeleteHighlight,
+  onDiveFromHighlight,
   onPin,
 }: DeepDiveViewProps) {
   const chain = ancestorChain(panels, focusId, rootLabel);
@@ -47,14 +67,20 @@ export default function DeepDiveView({
         {paneEntries.map((entry) => (
           <div className="deep-dive-pane" key={entry.id ?? "root"}>
             {entry.id === null ? (
-              <PdfPane {...pdfPaneProps} />
+              <div className="pdf-pane-slot" ref={rootSlotRef} />
             ) : (
               <DivePanelPane
                 panel={panelById(panels, entry.id)!}
                 allPanels={panels}
+                diveHighlights={diveHighlights}
+                scrolledToDiveHighlightId={scrolledToDiveHighlightId}
                 onOpenDive={onFocusChange}
                 onSendMessage={onSendMessage}
                 onNestedDive={onNestedDive}
+                onAddHighlight={onAddHighlight}
+                onEditHighlight={onEditHighlight}
+                onDeleteHighlight={onDeleteHighlight}
+                onDiveFromHighlight={onDiveFromHighlight}
                 onPin={onPin}
               />
             )}

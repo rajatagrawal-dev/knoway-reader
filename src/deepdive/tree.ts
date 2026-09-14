@@ -83,3 +83,35 @@ export function replacePanel(panels: DivePanel[], updated: DivePanel): DivePanel
 export function childrenOf(panels: DivePanel[], parentId: string): DivePanel[] {
   return panels.filter((p) => p.parentId === parentId);
 }
+
+// Walks parentId pointers up from panelId to the panel with no parent — the
+// root dive anchored directly to a PDF highlight. Every dive, however deeply
+// nested, traces back to exactly one of these; its anchorHighlightId is the
+// "starting point" in the main text for the whole branch.
+export function rootPanelOf(panels: DivePanel[], panelId: string): DivePanel | null {
+  let current = panelById(panels, panelId);
+  while (current && current.parentId) {
+    current = panelById(panels, current.parentId);
+  }
+  return current;
+}
+
+// panelId plus every panel nested underneath it (transitively, via
+// parentId) — the set that must be deleted together when the highlight
+// anchoring panelId is deleted, so a removed annotation takes its whole
+// dive subtree (and everything dived into further down that branch) with
+// it rather than leaving orphaned panels behind.
+export function panelSubtreeIds(panels: DivePanel[], panelId: string): Set<string> {
+  const ids = new Set<string>([panelId]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const panel of panels) {
+      if (panel.parentId && ids.has(panel.parentId) && !ids.has(panel.id)) {
+        ids.add(panel.id);
+        added = true;
+      }
+    }
+  }
+  return ids;
+}

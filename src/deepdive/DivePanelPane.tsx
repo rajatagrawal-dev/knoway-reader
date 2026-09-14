@@ -1,94 +1,199 @@
-import { cloneElement, Fragment, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  cloneElement,
+  Fragment,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import type { DivePanel } from "./types";
+import type { DiveHighlight, DivePanel } from "./types";
 import { childrenOf } from "./tree";
 import { useSelectionCapture } from "./useSelectionCapture";
-import SelectionPopover from "./SelectionPopover";
+import DiveSelectionTip from "./DiveSelectionTip";
+import DiveHighlightMark from "./DiveHighlightMark";
+import DiveHighlightEditTip from "./DiveHighlightEditTip";
 import { normalizeMathNotation } from "./mathNotation";
 
 export interface DivePanelPaneProps {
   panel: DivePanel;
   allPanels: DivePanel[];
+  diveHighlights: DiveHighlight[];
+  scrolledToDiveHighlightId: string | null;
   onOpenDive: (panelId: string) => void;
   onSendMessage: (panelId: string, content: string, onChunk?: (chunk: string) => void) => Promise<void>;
   onNestedDive: (request: { parentId: string; selection: string; contextText: string }) => void;
+  onAddHighlight: (
+    panelId: string,
+    text: string,
+    comment: string,
+    style?: Pick<DiveHighlight, "highlightColor" | "highlightStyle">,
+  ) => void;
+  onEditHighlight: (
+    highlightId: string,
+    edit: Partial<Pick<DiveHighlight, "highlightColor" | "highlightStyle" | "comment" | "divePanelId">>,
+  ) => void;
+  onDeleteHighlight: (highlightId: string) => void;
+  onDiveFromHighlight: (highlight: DiveHighlight, contextText: string) => void;
   onPin: (selection: string, contextText: string) => void;
 }
 
-// Wraps any substring of `text` matching one of `children`'s `selection` in a
-// clickable marker. Matches are found independently per child, sorted by
-// position, and overlapping matches are dropped (first match wins) —
-// approximate on purpose: this is a self-use app, not a rich-text editor.
-function wrapMarkersInText(
+const HIGHLIGHT_DIVE_CONTEXT_LENGTH = 1000;
+
+// Mirrors useSelectionCapture's own context extraction (nearest container's
+// text, truncated) for the case where there's no live browser selection to
+// read from — diving from an already-placed highlight instead of a fresh
+// one — by finding the turn the highlight's text lives in and using that.
+function contextForHighlight(panel: DivePanel, highlight: DiveHighlight): string {
+  const turn = panel.turns.find((t) => t.content.includes(highlight.text));
+  return (turn?.content ?? highlight.text).slice(0, HIGHLIGHT_DIVE_CONTEXT_LENGTH);
+}
+
+interface TextAnnotation {
+  start: number;
+  end: number;
+  wrap: (node: ReactNode) => ReactNode;
+}
+
+// Wraps any substring of `text` matching one of `children`'s `selection`,
+// or one of `diveHighlights`' `text`, in a marker/highlight element. Each
+// source is matched independently (first occurrence only), merged into one
+// list sorted by position, and overlapping matches are dropped (first match
+// wins, highlights taking priority over markers at a tie) — approximate on
+// purpose: this is a self-use app, not a rich-text editor.
+function wrapAnnotationsInText(
   text: string,
   children: DivePanel[],
+  diveHighlights: DiveHighlight[],
+  scrolledToDiveHighlightId: string | null,
+  editingHighlightId: string | null,
   onOpenDive: (panelId: string) => void,
+  onHighlightClick: (highlight: DiveHighlight, anchorRect: DOMRect) => void,
 ): ReactNode {
-  if (children.length === 0) return text;
+  if (children.length === 0 && diveHighlights.length === 0) return text;
 
-  const matches: { start: number; end: number; panel: DivePanel }[] = [];
+  const annotations: TextAnnotation[] = [];
+  for (const highlight of diveHighlights) {
+    const start = text.indexOf(highlight.text);
+    if (start === -1) continue;
+    annotations.push({
+      start,
+      end: start + highlight.text.length,
+      wrap: (node) => (
+        <DiveHighlightMark
+          highlight={highlight}
+          isScrolledTo={scrolledToDiveHighlightId === highlight.id}
+          isEditing={editingHighlightId === highlight.id}
+          onClick={onHighlightClick}
+        >
+          {node}
+        </DiveHighlightMark>
+      ),
+    });
+  }
   for (const child of children) {
     if (!child.selection) continue;
     const start = text.indexOf(child.selection);
-    if (start !== -1) {
-      matches.push({ start, end: start + child.selection.length, panel: child });
-    }
+    if (start === -1) continue;
+    annotations.push({
+      start,
+      end: start + child.selection.length,
+      wrap: (node) => (
+        <button
+          type="button"
+          className="dive-turn-marker"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenDive(child.id);
+          }}
+        >
+          {node}
+        </button>
+      ),
+    });
   }
-  if (matches.length === 0) return text;
+  if (annotations.length === 0) return text;
 
-  matches.sort((a, b) => a.start - b.start);
-  const nonOverlapping: typeof matches = [];
+  annotations.sort((a, b) => a.start - b.start);
+  const nonOverlapping: TextAnnotation[] = [];
   let cursor = 0;
-  for (const match of matches) {
-    if (match.start < cursor) continue;
-    nonOverlapping.push(match);
-    cursor = match.end;
+  for (const annotation of annotations) {
+    if (annotation.start < cursor) continue;
+    nonOverlapping.push(annotation);
+    cursor = annotation.end;
   }
 
   const nodes: ReactNode[] = [];
   let pos = 0;
-  nonOverlapping.forEach((match, index) => {
-    if (match.start > pos) nodes.push(text.slice(pos, match.start));
-    nodes.push(
-      <button
-        type="button"
-        key={`${match.panel.id}-${index}`}
-        className="dive-turn-marker"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenDive(match.panel.id);
-        }}
-      >
-        {text.slice(match.start, match.end)}
-      </button>,
-    );
-    pos = match.end;
+  nonOverlapping.forEach((annotation, index) => {
+    if (annotation.start > pos) nodes.push(text.slice(pos, annotation.start));
+    nodes.push(<Fragment key={index}>{annotation.wrap(text.slice(annotation.start, annotation.end))}</Fragment>);
+    pos = annotation.end;
   });
   if (pos < text.length) nodes.push(text.slice(pos));
   return nodes;
 }
 
-// Applies wrapMarkersInText to the plain-string children of a rendered
+// Applies wrapAnnotationsInText to the plain-string children of a rendered
 // markdown element, recursing into inline-formatting elements (<strong>,
-// <em>, <code>, ...) so a dived-into phrase still gets the clickable
-// marker even when part of it is bold/italic/etc.
-function wrapMarkerChildren(
+// <em>, <code>, ...) so a dived-into phrase or highlight still applies even
+// when part of it is bold/italic/etc.
+function wrapAnnotationChildren(
   node: ReactNode,
   children: DivePanel[],
+  diveHighlights: DiveHighlight[],
+  scrolledToDiveHighlightId: string | null,
+  editingHighlightId: string | null,
   onOpenDive: (panelId: string) => void,
+  onHighlightClick: (highlight: DiveHighlight, anchorRect: DOMRect) => void,
 ): ReactNode {
-  if (typeof node === "string") return wrapMarkersInText(node, children, onOpenDive);
+  if (typeof node === "string") {
+    return wrapAnnotationsInText(
+      node,
+      children,
+      diveHighlights,
+      scrolledToDiveHighlightId,
+      editingHighlightId,
+      onOpenDive,
+      onHighlightClick,
+    );
+  }
   if (Array.isArray(node)) {
     return node.map((child, index) => (
-      <Fragment key={index}>{wrapMarkerChildren(child, children, onOpenDive)}</Fragment>
+      <Fragment key={index}>
+        {wrapAnnotationChildren(
+          child,
+          children,
+          diveHighlights,
+          scrolledToDiveHighlightId,
+          editingHighlightId,
+          onOpenDive,
+          onHighlightClick,
+        )}
+      </Fragment>
     ));
   }
   if (isValidElement<{ children?: ReactNode }>(node) && node.props.children !== undefined) {
-    return cloneElement(node, undefined, wrapMarkerChildren(node.props.children, children, onOpenDive));
+    return cloneElement(
+      node,
+      undefined,
+      wrapAnnotationChildren(
+        node.props.children,
+        children,
+        diveHighlights,
+        scrolledToDiveHighlightId,
+        editingHighlightId,
+        onOpenDive,
+        onHighlightClick,
+      ),
+    );
   }
   return node;
 }
@@ -121,10 +226,23 @@ function isSoleEquationParagraph(node: ReactNode): boolean {
 // selection the user just made inside them.
 function useMarkdownComponents(
   children: DivePanel[],
+  diveHighlights: DiveHighlight[],
+  scrolledToDiveHighlightId: string | null,
+  editingHighlightId: string | null,
   onOpenDive: (panelId: string) => void,
+  onHighlightClick: (highlight: DiveHighlight, anchorRect: DOMRect) => void,
 ): Components {
   return useMemo(() => {
-    const wrap = (node: ReactNode) => wrapMarkerChildren(node, children, onOpenDive);
+    const wrap = (node: ReactNode) =>
+      wrapAnnotationChildren(
+        node,
+        children,
+        diveHighlights,
+        scrolledToDiveHighlightId,
+        editingHighlightId,
+        onOpenDive,
+        onHighlightClick,
+      );
     return {
       p: ({ children: c }) => (
         <p className={isSoleEquationParagraph(c) ? "dive-equation-line" : undefined}>{wrap(c)}</p>
@@ -136,7 +254,7 @@ function useMarkdownComponents(
       td: ({ children: c }) => <td>{wrap(c)}</td>,
       th: ({ children: c }) => <th>{wrap(c)}</th>,
     };
-  }, [children, onOpenDive]);
+  }, [children, diveHighlights, scrolledToDiveHighlightId, editingHighlightId, onOpenDive, onHighlightClick]);
 }
 
 function renderTurnContent(content: string, components: Components): ReactNode {
@@ -167,18 +285,63 @@ function ThinkingIndicator() {
 export default function DivePanelPane({
   panel,
   allPanels,
+  diveHighlights,
+  scrolledToDiveHighlightId,
   onOpenDive,
   onSendMessage,
   onNestedDive,
+  onAddHighlight,
+  onEditHighlight,
+  onDeleteHighlight,
+  onDiveFromHighlight,
   onPin,
 }: DivePanelPaneProps) {
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [streamingReply, setStreamingReply] = useState("");
+  const [editingHighlight, setEditingHighlight] = useState<{
+    highlightId: string;
+    position: { x: number; y: number };
+  } | null>(null);
   const dialogueRef = useRef<HTMLDivElement>(null);
   const { captured, clear } = useSelectionCapture(dialogueRef, ".dive-turn");
   const children = useMemo(() => childrenOf(allPanels, panel.id), [allPanels, panel.id]);
-  const markdownComponents = useMarkdownComponents(children, onOpenDive);
+  const panelHighlights = useMemo(
+    () => diveHighlights.filter((highlight) => highlight.panelId === panel.id),
+    [diveHighlights, panel.id],
+  );
+  // Re-derived from `panelHighlights` (rather than kept in `editingHighlight`
+  // itself) so the edit tip reflects the highlight's latest color/style/
+  // comment immediately after each edit, instead of the stale snapshot taken
+  // when it was clicked.
+  const editingHighlightObj = editingHighlight
+    ? panelHighlights.find((highlight) => highlight.id === editingHighlight.highlightId)
+    : undefined;
+
+  const handleHighlightClick = useCallback((highlight: DiveHighlight, anchorRect: DOMRect) => {
+    setEditingHighlight({ highlightId: highlight.id, position: { x: anchorRect.left, y: anchorRect.bottom + 6 } });
+  }, []);
+
+  const markdownComponents = useMarkdownComponents(
+    children,
+    panelHighlights,
+    scrolledToDiveHighlightId,
+    editingHighlight?.highlightId ?? null,
+    onOpenDive,
+    handleHighlightClick,
+  );
+
+  // Opened from the annotations panel: scroll the note's highlighted phrase
+  // into view. The mark carries the highlight's id as a data attribute
+  // (DiveHighlightMark) precisely so it can be found this way — text
+  // content alone isn't a stable enough selector once multiple highlights
+  // share overlapping words.
+  useEffect(() => {
+    if (!scrolledToDiveHighlightId) return;
+    if (!panelHighlights.some((highlight) => highlight.id === scrolledToDiveHighlightId)) return;
+    const mark = dialogueRef.current?.querySelector(`[data-dive-highlight-id="${scrolledToDiveHighlightId}"]`);
+    mark?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [scrolledToDiveHighlightId, panelHighlights]);
 
   const send = async (content: string) => {
     if (!content.trim() || pending) return;
@@ -213,18 +376,36 @@ export default function DivePanelPane({
         ) : null}
       </div>
       {captured ? (
-        <SelectionPopover
-          selection={captured.text}
+        <DiveSelectionTip
+          selectionText={captured.text}
           position={captured.position}
+          onAddHighlight={(text, comment, style) => {
+            onAddHighlight(panel.id, text, comment, style);
+            clear();
+          }}
           onDiveDeeper={() => {
             onNestedDive({ parentId: panel.id, selection: captured.text, contextText: captured.context });
             clear();
           }}
-          onPin={() => {
-            onPin(captured.text, captured.context);
-            clear();
-          }}
+          onPin={() => onPin(captured.text, captured.context)}
           onClose={clear}
+        />
+      ) : null}
+      {editingHighlight && editingHighlightObj ? (
+        <DiveHighlightEditTip
+          highlight={editingHighlightObj}
+          position={editingHighlight.position}
+          onEdit={(edit) => onEditHighlight(editingHighlightObj.id, edit)}
+          onDelete={() => {
+            onDeleteHighlight(editingHighlightObj.id);
+            setEditingHighlight(null);
+          }}
+          onOpenDive={onOpenDive}
+          onStartDive={() => {
+            onDiveFromHighlight(editingHighlightObj, contextForHighlight(panel, editingHighlightObj));
+            setEditingHighlight(null);
+          }}
+          onClose={() => setEditingHighlight(null)}
         />
       ) : null}
       <form
