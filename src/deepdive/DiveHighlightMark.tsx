@@ -10,7 +10,9 @@ function highlightMarkStyle(highlight: DiveHighlight): CSSProperties {
   if (highlight.highlightStyle === "strikethrough") {
     return { background: "transparent", textDecoration: "line-through", textDecorationColor: color, textDecorationThickness: "2px" };
   }
-  return { backgroundColor: color };
+  // Passed as a custom property rather than backgroundColor so App.css can
+  // tone it down in dark mode (see .dive-turn-highlight there).
+  return { "--dive-hl-bg": color } as CSSProperties;
 }
 
 export interface DiveHighlightMarkProps {

@@ -1,203 +1,502 @@
 /* overflow: hidden here is the backstop for the whole app: nothing below —
-   an oversized toolbar, a PDF page zoomed past the viewport, a long TOC
-   entry — should ever be able to force the *page itself* to scroll or grow
-   past the window. Anything that can legitimately get too big for its box
-   (the PDF viewer, sidebar lists, the toolbar's own button row) scopes its
-   own overflow internally instead; see .toolbar-actions and .PdfHighlighter. */
+   a PDF page zoomed past the viewport, a long TOC entry — should ever be
+   able to force the *page itself* to scroll or grow past the window.
+   Anything that can legitimately get too big for its box (the PDF viewer,
+   sidebar lists) scopes its own overflow internally instead; see
+   .PdfHighlighter. */
 .app-shell {
+  position: relative;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100vh;
   overflow: hidden;
 }
 
-.toolbar {
+/* Everything right of the rail: the normal workspace or Deep Dive. */
+.app-main {
   display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The one vertical rail for the whole app (AppRail): side panels at the
+   top, then the PDF tools, then the View menu pinned to the bottom. It sits
+   above the PDF (z-index) so its menus can float over the page. */
+.app-rail {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
+  gap: 4px;
+  padding: 10px 8px;
   background: var(--bg);
-  color: var(--text);
-  border-bottom: 1px solid var(--rule);
-  flex-wrap: nowrap;
-}
-
-/* The title is the toolbar element that gives up space first: an outsized
-   flex-shrink factor means it absorbs nearly all of any width deficit and
-   truncates (rather than wrapping to a second line, which would grow the
-   toolbar's — and so the sidebar's — height) before .toolbar-actions below
-   is forced to shrink at all. */
-.toolbar-title-group {
-  flex-grow: 1;
-  flex-shrink: 999;
-  flex-basis: auto;
-  min-width: 0;
-}
-
-.toolbar-title {
-  display: block;
-  font-size: 1.05rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-/* Never wraps to extra rows (that would grow the toolbar's height, and so
-   shrink the sidebar/PDF view below it) — the title above gives way first,
-   shrinking to nothing before this is touched at all. Only once the title
-   has nothing left to give does this itself get narrower than its buttons'
-   combined width, at which point it scrolls horizontally *within itself*
-   (min-width: 0 is what lets it shrink that far — a flex item's default
-   min-width: auto would otherwise refuse to shrink below content size and
-   push the overflow onto .app-shell's clip instead of a reachable scrollbar
-   here) rather than the whole page ever needing to scroll. */
-.toolbar-actions {
-  flex-grow: 0;
-  flex-shrink: 1;
-  flex-basis: auto;
-  min-width: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.toolbar-actions > * {
+  border-right: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.toolbar-actions button {
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 4px;
-  padding: 0.45rem 0.75rem;
-}
-
-.toolbar-actions button:hover {
-  background: var(--panel-bg);
-}
-
-.toolbar-actions button.active {
-  background: var(--link-tint);
-  border-color: var(--link);
-  color: var(--link);
-}
-
-/* Inline svg defaults to vertical-align: baseline, which reserves descender
-   space below it in the line box — enough to make an icon-only button a
-   pixel taller than its text-only siblings, whose height instead comes from
-   the font's line-height "strut". vertical-align: middle removes just that
-   descender gap without discarding the strut itself (which display: block
-   would do, under-sizing the button instead). */
-.toolbar-actions button svg {
-  vertical-align: middle;
-}
-
-.view-controls {
+.app-rail-tools {
   display: flex;
-  align-items: center;
-  gap: 0.15rem;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.view-controls button {
-  width: 30px;
-  height: 30px;
+.app-rail-divider {
+  width: 20px;
+  height: 1px;
+  margin: 8px 0;
+  background: var(--border);
+}
+
+.app-rail-spacer {
+  flex: 1;
+}
+
+.app-rail-anchor {
+  position: relative;
+}
+
+/* Borderless until hovered or active, so the rail reads as groups of
+   icons rather than a column of boxes. */
+.app-rail-button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
   padding: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
-  color: var(--text);
-  border-radius: 4px;
+  flex-shrink: 0;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.view-controls button:hover {
+.app-rail-button:hover {
   background: var(--panel-bg);
+  color: var(--text);
 }
 
-.view-controls button.active {
+/* An open panel or menu: tinted. */
+.app-rail-button.active {
   background: var(--link-tint);
-  border-color: var(--link);
   color: var(--link);
 }
 
-.view-controls button.view-controls-zoom {
-  width: auto;
-  min-width: 3.2rem;
-  padding: 0 0.4rem;
-  text-align: center;
-  font-size: 0.8rem;
-  color: var(--muted);
+/* The current tool: filled, so it reads as a mode rather than an open
+   panel. */
+.app-rail-tool.active,
+.app-rail-tool.active:hover {
+  background: var(--link);
+  color: var(--on-link);
 }
 
-.view-controls-zoom-input {
-  width: 3.2rem;
-  height: 30px;
-  border: 1px solid var(--border-strong);
+.app-rail-pen-dot {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 2px var(--hairline);
+}
+
+.rail-popover {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 10px);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 190px;
+  padding: 0.65rem;
   background: var(--bg);
   color: var(--text);
-  border-radius: 4px;
-  text-align: center;
-  font: inherit;
-  font-size: 0.8rem;
-  -moz-appearance: textfield;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px var(--shadow-color);
 }
 
-.view-controls-zoom-input::-webkit-outer-spin-button,
-.view-controls-zoom-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+/* Opens upward from a button at the bottom of the rail. */
+.rail-popover--bottom {
+  top: auto;
+  bottom: 0;
 }
 
-.search-bar {
+.rail-popover-title {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rail-popover-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
 }
 
-.search-bar input {
-  width: 200px;
+.rail-popover-separator {
+  height: 1px;
+  margin: 0 -0.65rem;
+  background: var(--border-soft);
+}
+
+.rail-popover-icon-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--border-strong);
   background: var(--bg);
   color: var(--text);
   border-radius: 4px;
-  padding: 0.45rem 0.6rem;
+}
+
+.rail-popover-icon-button:hover {
+  background: var(--panel-bg);
+}
+
+.rail-popover-icon-button.active {
+  background: var(--link-tint);
+  border-color: var(--link);
+  color: var(--link);
+}
+
+/* Swatches keep dark ink in both themes: the preset colors are all light. */
+.rail-popover-swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  color: #1a1a1a;
+}
+
+.rail-popover-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--link);
+}
+
+.view-menu {
+  width: 270px;
+}
+
+.view-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.view-menu-label {
+  font-size: 0.85rem;
+}
+
+.view-menu-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.view-menu-zoom-value,
+.view-menu-zoom-input,
+.view-menu-fit {
+  height: 30px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.view-menu-zoom-value,
+.view-menu-zoom-input {
+  width: 3.4rem;
+  padding: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+
+.view-menu-zoom-input::-webkit-outer-spin-button,
+.view-menu-zoom-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.view-menu-fit {
+  padding: 0 0.5rem;
+}
+
+.view-menu-zoom-value:hover,
+.view-menu-fit:hover {
+  background: var(--panel-bg);
+}
+
+.view-menu-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.35rem 0.25rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.view-menu-switch-row:hover {
+  background: var(--panel-bg);
+}
+
+.view-menu-switch-icon {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.view-menu-switch-label {
+  flex: 1;
+}
+
+.view-menu-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--border-strong);
+  transition: background 0.15s ease;
+}
+
+.view-menu-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bg);
+  transition: transform 0.15s ease;
+}
+
+.view-menu-switch.on {
+  background: var(--link);
+}
+
+.view-menu-switch.on::after {
+  transform: translateX(12px);
+}
+
+.view-menu-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.view-menu-segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  border: 0;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.view-menu-segmented button.active {
+  background: var(--link-tint);
+  color: var(--link);
+}
+
+.view-menu-action {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.view-menu-action:hover:not(:disabled) {
+  background: var(--panel-bg);
+}
+
+/* Cursors say what a drag or click on the page will do (see AppRail's
+   Tool). Existing highlights keep the library's pointer cursor: in any mode
+   they're clicked, not drawn over. The one-shot Area tool keeps the
+   library's crosshair. */
+.pdf-pane-viewer[data-tool="highlight"] .textLayer,
+.pdf-pane-viewer[data-tool="highlight"] .textLayer span {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='m9 11-6 6v3h9l3-3'/%3E%3Cpath d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/%3E%3C/g%3E%3Cg stroke='%231a1a1a' stroke-width='2'%3E%3Cpath d='m9 11-6 6v3h9l3-3'/%3E%3Cpath d='m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4'/%3E%3C/g%3E%3C/svg%3E") 3 20, text;
+}
+
+.pdf-pane-viewer[data-tool="note"] .PdfHighlighter,
+.pdf-pane-viewer[data-tool="note"] .pdfViewer,
+.pdf-pane-viewer[data-tool="note"] .textLayer,
+.pdf-pane-viewer[data-tool="note"] .textLayer span {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='white' stroke-width='4'%3E%3Cpath d='M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z'/%3E%3Cpath d='M15 3v4a2 2 0 0 0 2 2h4'/%3E%3C/g%3E%3Cg stroke='%231a1a1a' stroke-width='2'%3E%3Cpath d='M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z' fill='%23fff3b0'/%3E%3Cpath d='M15 3v4a2 2 0 0 0 2 2h4'/%3E%3C/g%3E%3C/svg%3E") 3 3, crosshair;
+}
+
+.search-field {
+  position: relative;
+  margin-top: 0.6rem;
+}
+
+.search-field-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.6rem;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.search-field input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.45rem 2rem 0.45rem 2rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
   font-size: 0.9rem;
 }
 
-.search-bar-count {
+.search-field input:focus {
+  outline: none;
+  border-color: var(--link);
+  box-shadow: 0 0 0 3px var(--link-tint);
+}
+
+.search-field input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.search-field-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.search-field-clear:hover {
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
+.search-panel-status {
+  margin: 0.5rem 0 0;
   color: var(--muted);
   font-size: 0.8rem;
-  white-space: nowrap;
-  min-width: 3.5rem;
-  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
-.search-bar button {
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  justify-content: center;
-  flex-shrink: 0;
+/* Rows run edge to edge (no list padding) so their text lines up with the
+   header's 1rem inset. */
+.sidebar-list.search-results {
+  padding: 0 0 1rem;
 }
 
-.search-bar button:disabled {
-  opacity: 0.4;
-  cursor: default;
+.search-group-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0;
+  padding: 0.7rem 1rem 0.3rem;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
-.search-bar button:not(:disabled):hover {
+.search-group-count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.search-result {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 1rem 0.4rem calc(1rem - 2px);
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  text-align: left;
+  scroll-margin-top: 2.2rem;
+}
+
+.search-result:hover {
   background: var(--panel-bg);
+}
+
+.search-result.is-active {
+  border-left-color: var(--link);
+  background: var(--link-tint);
+  color: var(--text);
+}
+
+.search-result-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.search-result mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: rgba(255, 214, 102, 0.6);
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .search-result mark {
+  background: rgba(255, 214, 102, 0.28);
+}
+
+.search-empty {
+  padding: 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
 }
 
 .workspace {
@@ -215,45 +514,11 @@
   min-height: 0;
 }
 
-.sidebar-rail {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.75rem 0.5rem;
-  border-right: 1px solid var(--border-soft);
-  flex-shrink: 0;
-}
-
-.sidebar-rail-button {
-  border: 1px solid var(--border-strong);
-  background: var(--bg);
-  color: var(--muted);
-  border-radius: 4px;
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.sidebar-rail-button:hover {
-  background: var(--panel-bg);
-  color: var(--text);
-}
-
-.sidebar-rail-button.active {
-  background: var(--link-tint);
-  border-color: var(--link);
-  color: var(--link);
-}
-
 .sidebar-panel {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 300px;
+  width: 360px;
   min-height: 0;
 }
 
@@ -388,64 +653,39 @@
   line-height: 1.5;
 }
 
-.sidebar-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.35rem;
-  margin-bottom: 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--panel-bg);
+/* HighlightContainer's id wrapper around each PDF highlight — kept out of
+   layout so the library's absolutely positioned parts are unaffected. */
+.highlight-anchor {
+  display: contents;
 }
 
-.sidebar-item.is-active {
-  border-color: var(--link);
-  box-shadow: 0 0 0 1px var(--link);
-}
-
-.sidebar-item-main {
-  border: 0;
-  background: transparent;
-  text-align: left;
-  padding: 0.75rem;
+.sidebar-item-actions {
+  align-self: start;
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.15rem;
+  margin: 0.4rem 0.4rem 0 0;
+}
+
+.sidebar-item-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
 }
 
-.sidebar-item-type,
-.sidebar-item-page {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.sidebar-item-text {
-  font-size: 0.9rem;
-  line-height: 1.4;
+.sidebar-item-action:hover {
+  background: var(--border);
   color: var(--text);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
-.sidebar-item-comment {
-  font-size: 0.85rem;
-  color: var(--muted);
-  font-style: italic;
-}
-
-.sidebar-item-delete {
-  align-self: start;
-  margin: 0.5rem 0.5rem 0 0;
-  border: 0;
-  background: transparent;
+.sidebar-item-delete,
+.sidebar-item-delete:hover {
   color: var(--danger);
-  font-size: 0.8rem;
 }
 
 /* min-width: 0 overrides the grid item's default min-width: auto, which
@@ -453,7 +693,11 @@
    it, a PDF page zoomed wider than this column would grow the whole grid
    track (and so the page) instead of scrolling inside .PdfHighlighter,
    where the library's own overflow: auto already expects to contain it. */
+/* Pinned to the second column so it keeps the 1fr track even when no
+   sidebar panel is open (Sidebar then renders nothing, and the viewer would
+   otherwise slide into the content-sized first column and collapse). */
 .viewer {
+  grid-column: 2;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -497,13 +741,63 @@
 .pdf-pane-viewer {
   height: 100%;
   min-height: 0;
-  background: #525659;
+  background: var(--pdf-canvas-bg);
   /* .PdfHighlighter is `position: absolute; width: 100%`; without a
      positioned ancestor here it sizes against the viewport instead of this
      pane, which is invisible in the full-width normal view but overlaps the
      neighboring pane once the split view makes this container narrower. */
   position: relative;
   overflow: hidden;
+}
+
+/* Two-page view: with removePageBorders, pdf.js's fit-width zoom sizes each
+   page to exactly half the container, but its own stylesheet still gives
+   every spread page `margin-inline: 5px`, so the spread overflowed by 20px
+   and left a scrollable strip to the right of the right page. Pages sit
+   flush instead, like an open book, with a thin seam drawn over the gutter
+   (a border would add width back). */
+.pdf-pane-viewer .pdfViewer.removePageBorders .spread .page {
+  margin-inline: 0;
+}
+
+.pdf-pane-viewer .pdfViewer .spread .page + .page::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.15);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.pdf-context-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 160px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px var(--shadow-color);
+  padding: 0.3rem;
+}
+
+.pdf-context-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pdf-context-menu-item:hover {
+  background: var(--panel-bg);
 }
 
 .loading {
@@ -527,7 +821,7 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 2rem;
-  box-shadow: 0 12px 30px rgba(26, 26, 26, 0.06);
+  box-shadow: 0 12px 30px var(--shadow-color);
 }
 
 .upload-card h1 {
@@ -541,15 +835,20 @@
   line-height: 1.6;
 }
 
-/* Mirrors the library's own highlight toolbar (.TextHighlight__toolbar) so
-   the tip shown for a fresh selection is built from the exact same button
-   classes (color trigger, style/copy buttons, comment panel, color menu...)
-   as the toolbar shown when clicking an existing highlight — same controls,
-   same look — rather than a bespoke, differently-styled box. Unlike that
-   toolbar this one renders inline instead of floating absolutely: it's
-   already positioned by the library's tip-container, and (having no
-   existing highlight to hide behind) it should just always be visible. */
-.expandable-tip__toolbar {
+/* HighlightToolbar — the one highlight tooltip used everywhere (fresh
+   selections and existing highlights, main PDF text and dive panels): the
+   action row and the style/color row stacked as two separate pills with a
+   gap between them. It only lays itself out; each caller positions it. */
+.highlight-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* Built from the library's own toolbar button classes
+   (.TextHighlight__copy-button etc.), so it matches its look. */
+.highlight-toolbar__row {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -557,6 +856,97 @@
   background: var(--rphp-toolbar-bg, #1c1b18);
   border-radius: var(--rphp-radius, 9px);
   box-shadow: var(--rphp-shadow-lg, 0 8px 24px -6px rgba(28, 27, 24, 0.22));
+  white-space: nowrap;
+}
+
+/* Style + color row: one row combining the highlight/underline/strikethrough
+   style buttons with every color preset as a swatch, so picking either is a
+   single click — no dropdown, no separate style-panel popover. The library's
+   TextHighlight/AreaHighlight are patched (see patches/) to mount this row
+   only while the toolbar itself is showing (selected/scrolled-to) rather
+   than always rendering it — an always-present row (even invisible) reserves
+   layout space inside the library's highlight-config-layer, which forces
+   pointer-events: auto on it and ends up eating the click on the highlighted
+   text itself. It's also grouped with the toolbar pill under one
+   .TextHighlight__toolbar-group/.AreaHighlight__toolbar-group wrapper (see
+   the patched TextHighlight.css/AreaHighlight.css) that floats the whole
+   stack above (or, flipped, below) the highlight as a unit — this row has
+   no position/spacing of its own beyond the group's flex gap, so it can
+   never end up overlapping the highlighted text the way an independently
+   positioned popover could. HighlightToolbar renders this row for every
+   tip (see .highlight-toolbar above). */
+.TextHighlight__color-row,
+.AreaHighlight__color-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--rphp-toolbar-bg, #1c1b18);
+  border-radius: var(--rphp-radius, 9px);
+  box-shadow: var(--rphp-shadow-lg, 0 8px 24px -6px rgba(28, 27, 24, 0.22));
+}
+
+/* Style buttons (highlight/underline/strikethrough) — only TextHighlight has
+   these, AreaHighlight's row is colors-only. Sized/colored like the dark
+   toolbar's own icon buttons rather than the old style-panel's light
+   squares, since this row lives on the same dark pill as the toolbar. */
+.TextHighlight__color-row-style {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #efece5;
+  border-radius: var(--rphp-radius-sm, 6px);
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.TextHighlight__color-row-style:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.TextHighlight__color-row-style.active {
+  background: var(--rphp-accent, #5b50e6);
+  color: #ffffff;
+}
+
+.TextHighlight__color-row-item,
+.AreaHighlight__color-row-item {
+  display: flex;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.TextHighlight__color-row-dot,
+.AreaHighlight__color-row-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.5);
+  color: #1c1b18;
+  transition: transform 0.1s ease;
+}
+
+.TextHighlight__color-row-item:hover .TextHighlight__color-row-dot,
+.AreaHighlight__color-row-item:hover .AreaHighlight__color-row-dot {
+  transform: scale(1.12);
+}
+
+.TextHighlight__color-row-dot svg,
+.AreaHighlight__color-row-dot svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
 }
 
 /* Primary/CTA buttons across the app share one restrained treatment: an
@@ -589,8 +979,8 @@
    highlights plain AI-dialogue text, not a PDF selection), so it positions
    itself the way the old selection-popover did — position: fixed at the
    captured selection's on-screen coordinates — while reusing the same
-   .expandable-tip__toolbar/.TextHighlight__* classes for its contents so it
-   looks identical to the main-text tip. */
+   HighlightToolbar for its contents so it looks identical to the main-text
+   tip. */
 .dive-selection-tip {
   position: fixed;
   z-index: 40;
@@ -614,9 +1004,7 @@
    of an icon, so it's restyled to match that context — the library's own
    dark-toolbar tokens, not this app's palette — rather than the blue pill
    used in the sidebar/selection popover. */
-.TextHighlight__toolbar .dive-badge,
-.AreaHighlight__toolbar .dive-badge,
-.expandable-tip__toolbar .dive-badge {
+.highlight-toolbar__row .dive-badge {
   height: 26px;
   padding: 0 8px;
   border: none;
@@ -626,14 +1014,12 @@
   font-size: 0.75rem;
 }
 
-.TextHighlight__toolbar .dive-badge:hover,
-.AreaHighlight__toolbar .dive-badge:hover,
-.expandable-tip__toolbar .dive-badge:hover:not(:disabled) {
+.highlight-toolbar__row .dive-badge:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
 }
 
-.expandable-tip__toolbar .dive-badge:disabled {
+.highlight-toolbar__row .dive-badge:disabled {
   color: rgba(239, 236, 229, 0.5);
   cursor: default;
 }
@@ -648,6 +1034,62 @@
   width: auto;
   padding: 0 8px;
   white-space: nowrap;
+}
+
+/* While the note panel is open, hide the rest of the toolbar (style/color
+   row, copy/delete/dive buttons) instead of leaving it visible alongside
+   the textarea — those controls act on the same in-progress selection the
+   note is being added to, so clicking them while the note is open used to
+   abandon the note without saving it rather than doing anything useful.
+   Every tip is a HighlightToolbar, so one rule covers them all. */
+.highlight-toolbar:has(.TextHighlight__comment-panel, .AreaHighlight__comment-panel) .highlight-toolbar__row,
+.highlight-toolbar:has(.TextHighlight__comment-panel, .AreaHighlight__comment-panel) .highlight-toolbar__colors {
+  display: none;
+}
+
+/* Save/Cancel row under the note textarea, so committing or discarding the
+   draft is an explicit action instead of only happening implicitly on
+   blur/Enter/Escape. */
+.TextHighlight__comment-actions,
+.AreaHighlight__comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.TextHighlight__comment-cancel,
+.AreaHighlight__comment-cancel,
+.TextHighlight__comment-save,
+.AreaHighlight__comment-save {
+  border: none;
+  border-radius: var(--rphp-radius-sm, 6px);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.TextHighlight__comment-cancel,
+.AreaHighlight__comment-cancel {
+  background: transparent;
+  color: var(--rphp-text-muted, #8b8880);
+}
+
+.TextHighlight__comment-cancel:hover,
+.AreaHighlight__comment-cancel:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.TextHighlight__comment-save,
+.AreaHighlight__comment-save {
+  background: var(--rphp-accent, #5b50e6);
+  color: #ffffff;
+}
+
+.TextHighlight__comment-save:hover,
+.AreaHighlight__comment-save:hover {
+  background: var(--rphp-accent-hover, #4a41c9);
 }
 
 /* Hover tooltip for a highlight's comment. Reuses the library's own
@@ -668,137 +1110,608 @@
   word-break: break-word;
 }
 
-.sidebar-item-type-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-/* A row with no onOpen (currently just pins, which have no location to
-   jump to) renders the same card as a clickable one, minus the pointer
-   affordance — reuses .sidebar-item-main's layout instead of a bespoke
-   style so every annotation kind lines up in the unified list. */
-.sidebar-item-main--static {
-  cursor: default;
-}
-
-.annotations-filter-bar {
-  padding: 0.75rem 1rem;
-}
-
-.annotations-filters {
-  position: relative;
-  display: inline-block;
-}
-
-.annotations-filters-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
+.quick-note-input {
+  flex: 1;
+  min-width: 0;
   border: 1px solid var(--border-strong);
   background: var(--bg);
   color: var(--text);
   border-radius: 6px;
-  padding: 0.4rem 0.75rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.quick-note-input:focus {
+  outline: none;
+  border-color: var(--link);
+}
+
+/* ---- Annotations panel ---------------------------------------------- */
+
+/* Rows run edge to edge (group headings span the full width, like the
+   search panel's); cards inset themselves. */
+.sidebar-list.annot-list {
+  padding: 0 0 1rem;
+}
+
+.annot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.annot-toolbar-spacer {
+  flex: 1;
+}
+
+.annot-toolbar-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  white-space: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  height: 28px;
+  padding: 0 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.annotations-filters-toggle:hover {
+.annot-toolbar-button:hover:not(:disabled) {
   background: var(--panel-bg);
-  border-color: var(--muted);
 }
 
-.annotations-filters-chevron {
-  transition: transform 0.15s ease;
-}
-
-.annotations-filters-toggle[aria-expanded="true"] .annotations-filters-chevron {
-  transform: rotate(180deg);
-}
-
-.annotations-filters-toggle.active {
+.annot-toolbar-button.is-active {
   border-color: var(--link);
   background: var(--link-tint);
   color: var(--link);
+}
+
+.annot-filters-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--link);
+  color: var(--on-link);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.annot-toolbar-icon {
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+  color: var(--muted);
+}
+
+/* The one toolbar control that gives up width when the filter count badge
+   needs it. */
+.annot-sort {
+  flex-shrink: 1;
+  min-width: 0;
+  padding-right: 0.3rem;
+  text-overflow: ellipsis;
+}
+
+.annot-new-note {
+  border-color: var(--link);
+  background: var(--link);
+  color: var(--on-link);
   font-weight: 600;
 }
 
-.annotations-filters-menu {
+.annot-new-note:hover:not(:disabled) {
+  background: var(--link);
+  filter: brightness(1.1);
+}
+
+.annot-filters {
+  position: relative;
+}
+
+.annot-filters-chevron {
+  transition: transform 0.15s ease;
+}
+
+.annot-toolbar-button[aria-expanded="true"] .annot-filters-chevron {
+  transform: rotate(180deg);
+}
+
+.annot-filters-menu {
   position: absolute;
   z-index: 20;
   top: calc(100% + 6px);
   left: 0;
-  min-width: 210px;
-  background: var(--bg);
+  width: 240px;
+  padding: 0.35rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 12px 30px rgba(26, 26, 26, 0.14);
-  padding: 0.4rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
+  background: var(--bg);
+  box-shadow: 0 12px 30px var(--shadow-color);
 }
 
-.annotations-filters-menu-item {
+.annot-filters-heading {
+  margin: 0.45rem 0.5rem 0.2rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.annot-filters-heading:first-child {
+  margin-top: 0.2rem;
+}
+
+.annot-filters-item {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.6rem;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
   border-radius: 6px;
-  font-size: 0.85rem;
-  line-height: 1.2;
   color: var(--text);
+  font-size: 0.85rem;
   cursor: pointer;
-  transition: background-color 0.1s ease;
 }
 
-.annotations-filters-menu-item input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--link);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.annotations-filters-menu-item:hover {
+.annot-filters-item:hover {
   background: var(--panel-bg);
 }
 
-.annotations-filters-menu-item.disabled {
+.annot-filters-item.is-empty {
   color: var(--muted);
-  cursor: default;
 }
 
-.annotations-filters-menu-item.disabled input[type="checkbox"] {
-  cursor: default;
+.annot-filters-item input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--link);
+  cursor: pointer;
 }
 
-.annotations-filters-menu-item.disabled:hover {
+.annot-filters-item svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.annot-filters-item-label {
+  flex: 1;
+}
+
+.annot-filters-item-count {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.annot-filters-swatches {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem 0.4rem;
+}
+
+.annot-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  color: #1a1a1a;
+}
+
+.annot-swatch.is-selected {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--link);
+}
+
+.annot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.55rem;
+}
+
+.annot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.45rem 0.15rem 0.55rem;
+  border: 1px solid var(--link);
+  border-radius: 999px;
+  background: var(--link-tint);
+  color: var(--link);
+  font-size: 0.75rem;
+}
+
+.annot-chip:hover {
+  filter: brightness(0.97);
+}
+
+.annot-chip-swatch {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+}
+
+.annot-chips-clear {
+  padding: 0.15rem 0.3rem;
+  border: 0;
   background: transparent;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-decoration: underline;
 }
 
-.annotations-filters-menu-divider {
-  height: 1px;
-  margin: 0.3rem 0.2rem;
-  background: var(--border-soft);
+.annot-group-heading {
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 0.5rem;
 }
 
-.annotations-filters-menu-clear {
+.annot-group-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annot-card {
+  position: relative;
+  margin: 0 0.75rem 0.5rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  transition: border-color 0.1s ease;
+}
+
+.annot-card.has-color {
+  border-left-color: var(--annot-color);
+}
+
+.annot-card:hover {
+  border-top-color: var(--link);
+  border-right-color: var(--link);
+  border-bottom-color: var(--link);
+}
+
+.annot-card.is-active {
+  border-top-color: var(--link);
+  border-right-color: var(--link);
+  border-bottom-color: var(--link);
+  box-shadow: 0 0 0 1px var(--link);
+}
+
+.annot-card--note,
+.annot-card--sticky {
+  border-left-color: var(--link);
+}
+
+.annot-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem 0.65rem;
+}
+
+.annot-card-body.is-clickable {
+  cursor: pointer;
+}
+
+.annot-card-body:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: -2px;
+  border-radius: 5px;
+}
+
+/* Leaves room on the right for the hover actions, which sit over it. */
+.annot-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 20px;
+  padding-right: 4.8rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.annot-card-icon {
+  flex-shrink: 0;
+}
+
+.annot-card-page {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.annot-dive-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0.15rem;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--link);
+  border-radius: 999px;
+  background: var(--link-tint);
+  color: var(--link);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.annot-dive-link:hover {
+  background: var(--link);
+  color: var(--on-link);
+}
+
+.annot-card-context {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+.annot-card-context svg {
+  flex-shrink: 0;
+}
+
+.annot-card-context span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annot-card-image {
+  display: block;
+  max-width: 100%;
+  max-height: 140px;
+  object-fit: contain;
+  object-position: left;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* Every card text keeps the author's line breaks and wraps anywhere
+   (a URL or formula with no spaces would otherwise push the card, and its
+   actions, off the side of the panel). */
+.annot-card-text,
+.annot-card-comment-text,
+.annot-card-placeholder {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.annot-card-text {
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.annot-card-placeholder {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.annot-clamp:not(.is-expanded) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--annot-clamp-lines);
+  overflow: hidden;
+}
+
+.annot-more {
+  align-self: flex-start;
+  margin-top: -0.15rem;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--link);
-  font-size: 0.8rem;
-  text-align: left;
-  padding: 0.5rem 0.6rem;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.1s ease;
+  font-size: 0.75rem;
 }
 
-.annotations-filters-menu-clear:hover {
-  background: var(--link-tint);
+.annot-more:hover {
+  text-decoration: underline;
+}
+
+.annot-card-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.15rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+}
+
+.annot-card-comment-text {
+  color: var(--text);
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+.annot-card mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: rgba(255, 214, 102, 0.6);
+  color: inherit;
+}
+
+:root[data-theme="dark"] .annot-card mark {
+  background: rgba(255, 214, 102, 0.28);
+}
+
+/* Revealed on hover/focus so the list stays calm; always shown where there
+   is no hover (touch). */
+.annot-card-actions {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  display: flex;
+  gap: 0.1rem;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.annot-card:hover .annot-card-actions,
+.annot-card:focus-within .annot-card-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .annot-card-actions {
+    opacity: 1;
+  }
+}
+
+.annot-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.annot-card-action:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.annot-card-action--danger:hover {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.annot-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-top: 1px solid var(--border-soft);
+  background: var(--danger-tint);
+  border-radius: 0 0 5px 5px;
+}
+
+.annot-confirm-text {
+  flex: 1;
+  min-width: 8rem;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.annot-button {
+  padding: 0.3rem 0.7rem;
+  border: 0;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.annot-button--quiet {
+  background: transparent;
+  color: var(--muted);
+}
+
+.annot-button--quiet:hover {
+  color: var(--text);
+  background: var(--border-soft);
+}
+
+.annot-button--primary {
+  background: var(--link);
+  color: var(--on-link);
+  font-weight: 600;
+}
+
+.annot-button--danger {
+  background: var(--danger);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.annot-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.annot-editor-textarea {
+  display: block;
+  width: 100%;
+  max-height: 40vh;
+  min-height: 3.2rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  resize: none;
+}
+
+.annot-editor-textarea:focus {
+  outline: none;
+  border-color: var(--link);
+  box-shadow: 0 0 0 3px var(--link-tint);
+}
+
+.annot-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.annot-editor-hint {
+  flex: 1;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.annot-composer {
+  margin: 0.75rem 0.75rem 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--link);
+  border-radius: 6px;
+  background: var(--panel-bg);
+}
+
+.annot-empty-tips {
+  margin: 0.6rem 0 0;
+  padding-left: 1.1rem;
+  line-height: 1.55;
+  font-size: 0.85rem;
+}
+
+.annot-empty-clear {
+  margin-top: 0.5rem;
+  padding-left: 0;
+  color: var(--link);
 }
 
 .dive-panel-pane {
@@ -810,60 +1723,111 @@
 }
 
 .dive-panel-header {
-  padding: 0.75rem 1rem;
+  padding: 0.7rem 1.5rem;
+  font-size: 0.85rem;
   font-weight: 600;
   border-bottom: 1px solid var(--border-soft);
   background: var(--panel-bg);
-  color: var(--text);
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The dive reads like a page of explanation, not a chat log: answers run
+   as an unboxed prose column at a comfortable measure, the passage being
+   explained sits above them as a quiet excerpt, and only the reader's own
+   follow-up questions get a (light) bubble — so the eye lands on the
+   explanation instead of on chrome. */
 .dive-panel-dialogue {
   flex: 1;
   overflow: auto;
-  padding: 1rem;
+  padding: 1.5rem 1.5rem 2.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1.25rem;
   position: relative;
 }
 
 .dive-turn {
-  max-width: 85%;
-  padding: 0.6rem 0.85rem;
-  border-radius: 0.5rem;
-  line-height: 1.5;
+  width: 100%;
+  max-width: 40rem;
+  margin: 0 auto;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.dive-turn-assistant {
+  font-size: 1.02rem;
 }
 
 .dive-turn-user {
   align-self: flex-end;
-  background: var(--link);
-  color: #ffffff;
+  width: auto;
+  max-width: min(80%, 32rem);
+  /* Right edge lines up with the prose column's, not the pane's. */
+  margin: 0.75rem max(0px, calc((100% - 40rem) / 2)) 0 0;
+  padding: 0.55rem 0.9rem;
+  border-radius: 0.9rem 0.9rem 0.25rem 0.9rem;
+  background: var(--link-tint);
+  font-size: 0.95rem;
+  line-height: 1.5;
   white-space: pre-wrap;
 }
 
-.dive-turn-assistant {
-  align-self: flex-start;
-  background: var(--panel-bg);
-  color: var(--text);
+.dive-thinking {
+  color: var(--muted);
+  font-style: italic;
 }
 
-.dive-turn-streaming {
-  opacity: 0.75;
+.dive-source {
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-soft);
 }
 
-.dive-turn > *:first-child {
+.dive-source-label {
+  margin-bottom: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dive-turn .dive-source-quote {
+  margin: 0;
+  padding: 0.1rem 0 0.1rem 0.9rem;
+  border-left: 3px solid var(--link);
+  font-style: italic;
+  color: var(--muted);
+  opacity: 1;
+}
+
+.dive-turn .dive-source-quote p {
+  margin: 0;
+}
+
+.dive-source-image {
+  display: block;
+  max-width: 100%;
+  max-height: 14rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+}
+
+.dive-turn > *:first-child,
+.dive-turn-body > *:first-child {
   margin-top: 0;
 }
 
-.dive-turn > *:last-child {
+.dive-turn > *:last-child,
+.dive-turn-body > *:last-child {
   margin-bottom: 0;
 }
 
 .dive-turn p {
-  margin: 0 0 0.6em;
+  margin: 0 0 0.9em;
 }
 
 .dive-turn strong {
@@ -872,19 +1836,23 @@
 
 .dive-turn ul,
 .dive-turn ol {
-  margin: 0.4em 0 0.6em;
+  margin: 0.4em 0 0.9em;
   padding-left: 1.4em;
 }
 
 .dive-turn li {
-  margin: 0.2em 0;
+  margin: 0.35em 0;
+}
+
+.dive-turn li::marker {
+  color: var(--muted);
 }
 
 .dive-turn h1,
 .dive-turn h2,
 .dive-turn h3,
 .dive-turn h4 {
-  margin: 0.8em 0 0.4em;
+  margin: 1.4em 0 0.5em;
   line-height: 1.3;
 }
 
@@ -901,7 +1869,7 @@
 }
 
 .dive-turn code {
-  background: rgba(26, 26, 26, 0.08);
+  background: var(--code-bg);
   border-radius: 0.25rem;
   padding: 0.1em 0.35em;
   font-size: 0.85em;
@@ -909,7 +1877,7 @@
 }
 
 .dive-turn pre {
-  background: rgba(26, 26, 26, 0.08);
+  background: var(--code-bg);
   border-radius: 0.35rem;
   padding: 0.6em 0.8em;
   overflow-x: auto;
@@ -929,14 +1897,9 @@
 
 .dive-turn th,
 .dive-turn td {
-  border: 1px solid rgba(26, 26, 26, 0.15);
+  border: 1px solid var(--hairline);
   padding: 0.3em 0.6em;
   text-align: left;
-}
-
-.dive-turn-user th,
-.dive-turn-user td {
-  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .dive-turn a {
@@ -947,15 +1910,37 @@
 .dive-turn blockquote {
   margin: 0.4em 0;
   padding-left: 0.8em;
-  border-left: 3px solid rgba(26, 26, 26, 0.15);
+  border-left: 3px solid var(--hairline);
   opacity: 0.85;
 }
 
-.dive-turn .katex-display {
-  margin: 0.7em 0;
-  padding: 0.9em 0 0.5em;
+/* Display equations get their own breathing room: centered, set off from
+   the prose above and below, and scrolling sideways on their own (rather
+   than the whole pane) when a wide matrix doesn't fit. */
+.dive-turn .dive-equation {
+  margin: 1.1em 0 1.2em;
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: hidden;
+}
+
+.dive-turn .katex-display {
+  margin: 0;
+  padding: 0.25em 0;
+}
+
+.dive-turn .katex-display > .katex,
+.dive-turn .katex-display > mark > .katex {
+  font-size: 1.12em;
+}
+
+/* A highlighted/dived-into display equation: an inline mark's background
+   would only cover a thin band through the middle of a tall matrix, so the
+   mark becomes a box around the whole equation instead. */
+.dive-turn .katex-display > .dive-turn-highlight,
+.dive-turn .katex-display > .dive-turn-marker {
+  display: inline-block;
+  padding: 0.2em 0.45em;
+  border-radius: 4px;
 }
 
 .dive-turn .katex {
@@ -995,15 +1980,19 @@
    than an underline, so "this text was dived into" reads the same way
    "this text is highlighted" does everywhere else in the app. Left as its
    own class (not merged into .dive-turn-highlight) since it stays a plain
-   button with no color/style/comment of its own. */
+   marker with no color/style/comment of its own. A <span role="button">
+   (see DiveMarkerSpan in DivePanelPane.tsx), not a real <button> — a real
+   button's content can't be drag-selected in most browsers, which would
+   make it impossible to ever place a highlight on (or overlapping) marked
+   text. user-select is spelled out explicitly here rather than left to the
+   span default so that stays true regardless of what wraps this. */
 .dive-turn-marker {
-  border: 0;
   background-color: rgba(255, 226, 143, 1);
   border-radius: 2px;
   padding: 0 1px;
-  font: inherit;
   color: inherit;
   cursor: pointer;
+  user-select: text;
 }
 
 /* A highlight placed on AI dialogue text (DiveSelectionTip's color/style
@@ -1017,9 +2006,21 @@
 .dive-turn-highlight {
   position: relative;
   color: inherit;
+  background-color: var(--dive-hl-bg, transparent);
   border-radius: 2px;
   padding: 0 1px;
   cursor: pointer;
+}
+
+/* In dark mode the dialogue text is light, so the light pastel presets
+   would leave it unreadable. Blend the stored color into the background
+   instead (display only — the saved color is unchanged), the way e-readers
+   render highlights in dark themes. */
+:root[data-theme="dark"] .dive-turn-highlight {
+  background-color: color-mix(in srgb, var(--dive-hl-bg, transparent) 35%, transparent);
+}
+:root[data-theme="dark"] .dive-turn-marker {
+  background-color: color-mix(in srgb, rgba(255, 226, 143, 1) 35%, transparent);
 }
 
 /* Same accent ring the PDF highlights use for --selected/--scrolledTo (see
@@ -1044,20 +2045,46 @@
   z-index: 30;
 }
 
+/* Lines up with the prose column above so the follow-up box reads as part
+   of the same page rather than a separate toolbar. */
+/* The textarea and Send button share one height (--composer-control-height)
+   so they line up at a single line; a taller multi-line draft grows upward
+   with the button staying anchored to its bottom edge. */
 .dive-panel-composer {
+  --composer-control-height: 2.75rem;
   display: flex;
+  align-items: flex-end;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem max(1.5rem, calc((100% - 40rem) / 2)) 1rem;
   border-top: 1px solid var(--border-soft);
 }
 
 .dive-panel-composer textarea {
   flex: 1;
-  resize: vertical;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 0.5rem;
+  resize: none;
+  min-height: var(--composer-control-height);
+  max-height: 10rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  background: var(--bg);
+  color: var(--text);
   font: inherit;
+  line-height: 1.5;
+}
+
+.dive-panel-composer button {
+  flex-shrink: 0;
+  height: var(--composer-control-height);
+  padding-block: 0;
+  border-radius: 8px;
+}
+
+.dive-panel-composer textarea:focus {
+  outline: none;
+  border-color: var(--link);
+  box-shadow: 0 0 0 3px var(--link-tint);
 }
 
 .deep-dive-view {
@@ -1123,4 +2150,617 @@
 
 .deep-dive-pane:last-child {
   border-right: 0;
+}
+
+/* ── Stickers (sticky notes) ─────────────────────────────────────────────
+   A paper card with a thin colored top edge and a folded bottom-right
+   corner. The paper and its deeper accent shade come in as CSS vars from
+   stickerStyles.ts (the library's inline background-color is overridden so
+   the paper can be painted on ::before, where the corner can be cut away).
+   Padding/line-height here must match freetextSize.ts. */
+.FreetextHighlight .FreetextHighlight__container {
+  --sticker-fold: 12px;
+  position: relative;
+  background-color: transparent !important;
+  border-radius: 4px;
+  box-shadow: none;
+  filter:
+    drop-shadow(0 1px 1px rgba(40, 32, 12, 0.1))
+    drop-shadow(0 4px 8px rgba(40, 32, 12, 0.1));
+  transition: filter 0.2s ease, outline-color 0.15s ease;
+  outline: 2px solid transparent;
+  outline-offset: 3px;
+}
+
+.FreetextHighlight .FreetextHighlight__container::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(var(--sticker-accent), var(--sticker-accent)) top / 100% 3px no-repeat,
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 55%),
+    var(--sticker-paper);
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - var(--sticker-fold)),
+    calc(100% - var(--sticker-fold)) 100%,
+    0 100%
+  );
+  pointer-events: none;
+}
+
+/* The fold: the paper's underside, turned up over the cut corner. */
+.FreetextHighlight .FreetextHighlight__container::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  width: var(--sticker-fold);
+  height: var(--sticker-fold);
+  border-top-left-radius: 3px;
+  background: linear-gradient(
+    to top left,
+    transparent 50%,
+    color-mix(in srgb, var(--sticker-accent) 40%, var(--sticker-paper)) 50%
+  );
+  pointer-events: none;
+}
+
+.FreetextHighlight .FreetextHighlight__container:hover {
+  box-shadow: none;
+  filter:
+    drop-shadow(0 2px 2px rgba(40, 32, 12, 0.12))
+    drop-shadow(0 10px 16px rgba(40, 32, 12, 0.14));
+}
+
+.FreetextHighlight--selected .FreetextHighlight__container,
+.FreetextHighlight--editing .FreetextHighlight__container,
+.FreetextHighlight--scrolledTo .FreetextHighlight__container {
+  box-shadow: none;
+  outline-color: var(--rphp-accent, #5b50e6);
+}
+
+/* The note's box takes its size from its text — never the rect react-rnd
+   is given. That stored rect is in page coordinates, so it grows and shrinks
+   with zoom while the text doesn't, which left notes either overflowing
+   (scrolling) or far bigger than their text. Width shrink-wraps up to a cap,
+   then the text wraps and the height grows to show all of it. */
+.FreetextHighlight:not(.FreetextHighlight--collapsed) .FreetextHighlight__rnd {
+  width: max-content !important;
+  height: auto !important;
+  min-width: 48px !important;
+  min-height: 0 !important;
+  max-width: 264px !important;
+}
+
+.FreetextHighlight:not(.FreetextHighlight--collapsed) .FreetextHighlight__container {
+  height: auto;
+}
+
+.FreetextHighlight .FreetextHighlight__content {
+  flex: none;
+  overflow: visible;
+  padding: 10px 12px;
+  line-height: 1.4;
+}
+
+.FreetextHighlight .FreetextHighlight__text {
+  width: auto;
+  height: auto;
+  overflow: visible;
+  overflow-wrap: break-word;
+  letter-spacing: 0.005em;
+}
+
+/* While editing, the textarea grows with its text: a hidden copy of the
+   text (::after) sizes the grid cell, and the textarea fills that cell. */
+.FreetextHighlight__input-wrap {
+  display: grid;
+  min-width: 4ch;
+}
+
+.FreetextHighlight__input-wrap::after {
+  content: attr(data-value) " ";
+  visibility: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  letter-spacing: 0.005em;
+}
+
+.FreetextHighlight__input-wrap::after,
+.FreetextHighlight .FreetextHighlight__input-wrap .FreetextHighlight__input {
+  grid-area: 1 / 1;
+}
+
+.FreetextHighlight .FreetextHighlight__input-wrap .FreetextHighlight__input {
+  /* width 0 keeps the textarea's own default width (~20 columns) from
+     stretching the note; min-width then fills the cell the text sized. */
+  width: 0;
+  min-width: 100%;
+  height: auto;
+  overflow: hidden;
+  line-height: inherit;
+  letter-spacing: 0.005em;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* The style panel otherwise matches the note's width, which is now often
+   narrower than its controls. */
+.FreetextHighlight .FreetextHighlight__style-panel {
+  right: auto;
+  min-width: 200px;
+}
+
+/* "None" paper: plain text on the page, no card, fold or shadow. */
+.FreetextHighlight .FreetextHighlight__container[style*="--sticker-paper: transparent"] {
+  --sticker-fold: 0px;
+  filter: none;
+}
+
+.FreetextHighlight .FreetextHighlight__container[style*="--sticker-paper: transparent"]:hover {
+  filter: none;
+  outline-color: var(--rphp-border-strong, #b7b3ab);
+}
+
+/* Collapsed to a round badge: a plain paper disc, no edge or fold. */
+.FreetextHighlight--collapsed .FreetextHighlight__container {
+  --sticker-fold: 0px;
+  border-radius: 999px;
+  outline-offset: 2px;
+}
+
+.FreetextHighlight--collapsed .FreetextHighlight__container::before {
+  background: var(--sticker-paper);
+  box-shadow: inset 0 0 0 1.5px var(--sticker-accent);
+}
+
+.FreetextHighlight--collapsed .FreetextHighlight__compact-button {
+  position: relative;
+  z-index: 1;
+  color: color-mix(in srgb, var(--sticker-accent) 70%, #000);
+}
+
+/* Hovering a collapsed badge peeks at the note: a small card beside it in
+   the note's own paper, ink and font (all inherited from the container). */
+.FreetextHighlight--collapsed .FreetextHighlight__container {
+  overflow: visible;
+}
+
+.FreetextHighlight__peek {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  z-index: 2;
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 11px;
+  border-radius: 4px;
+  border-top: 3px solid var(--sticker-accent);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 55%),
+    var(--sticker-paper);
+  /* Light on purpose: the badge's drop-shadow filter already shadows it. */
+  box-shadow: 0 1px 2px rgba(40, 32, 12, 0.1);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-4px, -50%);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.FreetextHighlight--collapsed .FreetextHighlight__container:hover .FreetextHighlight__peek {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.FreetextHighlight .FreetextHighlight__container[style*="--sticker-paper: transparent"] .FreetextHighlight__peek {
+  border-top-color: var(--rphp-border-strong, #b7b3ab);
+  background: #fff;
+}
+
+/* Pale paper swatches need a firmer rim to read against the white menu. */
+.FreetextHighlight .FreetextHighlight__color-menu-dot {
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.FreetextHighlight .FreetextHighlight__style-row select {
+  min-width: 120px;
+}
+
+/* ---- Glossary ------------------------------------------------------------ */
+
+/* The selection tip after "Glossary": the definition streams in here, next
+   to the selected text (see GlossaryCard). */
+.glossary-card {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  padding: 0.7rem 0.85rem 0.6rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--rphp-radius, 9px);
+  box-shadow: 0 8px 24px -6px var(--shadow-color);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  white-space: normal;
+  text-align: left;
+}
+
+.glossary-card-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.glossary-card-icon {
+  color: var(--link);
+  flex-shrink: 0;
+}
+
+.glossary-card-term {
+  font-weight: 700;
+}
+
+.glossary-definition p {
+  margin: 0;
+}
+
+.glossary-definition p + p {
+  margin-top: 0.4em;
+}
+
+.glossary-definition.is-streaming > :last-child::after {
+  content: "▍";
+  margin-left: 1px;
+  color: var(--link);
+  animation: glossary-caret 1s steps(2, start) infinite;
+}
+
+@keyframes glossary-caret {
+  to {
+    visibility: hidden;
+  }
+}
+
+.glossary-card-status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.glossary-spinner {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--link);
+  border-radius: 50%;
+  animation: glossary-spin 0.8s linear infinite;
+}
+
+@keyframes glossary-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.glossary-card-error,
+.glossary-entry-error {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.glossary-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border-soft);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.glossary-card-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.glossary-card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.glossary-card-link:hover {
+  text-decoration: underline;
+}
+
+/* How the definition was arrived at (see GlossarySource). */
+.glossary-source {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.glossary-source--defined {
+  border-color: var(--link);
+  background: var(--link-tint);
+  color: var(--link);
+}
+
+.glossary-source--general {
+  border-style: dashed;
+}
+
+/* Sidebar panel */
+.glossary-controls {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 0.25rem;
+}
+
+.glossary-controls .quick-note-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.glossary-sort {
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.3rem 0.4rem;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.glossary-entry {
+  margin-bottom: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-bg);
+}
+
+.glossary-entry:hover,
+.glossary-entry.is-expanded {
+  border-color: var(--link);
+}
+
+.glossary-entry-top {
+  display: flex;
+  align-items: flex-start;
+}
+
+.glossary-entry-head {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.6rem 0.25rem 0.3rem 0.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.glossary-entry-head > svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.glossary-entry-term {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.glossary-entry-body {
+  padding: 0 0.75rem 0.6rem 1.55rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.glossary-entry-body.is-collapsed {
+  cursor: pointer;
+}
+
+.glossary-entry-body.is-collapsed .glossary-definition {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--muted);
+}
+
+.glossary-entry-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0 0.6rem 0.7rem 1.55rem;
+}
+
+.glossary-entry-aliases {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.glossary-refs-heading {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.glossary-refs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: calc(100% + 0.5rem);
+  margin-left: -0.5rem;
+}
+
+.glossary-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.glossary-ref:hover {
+  background: var(--link-tint);
+}
+
+.glossary-ref.is-active {
+  border-color: var(--link);
+}
+
+.glossary-ref-page {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.glossary-ref.is-definition .glossary-ref-page {
+  color: var(--link);
+  font-weight: 600;
+}
+
+.glossary-ref-snippet {
+  color: var(--muted);
+}
+
+.glossary-ref-snippet mark {
+  background: var(--link-tint);
+  color: var(--text);
+  font-weight: 600;
+  border-radius: 2px;
+}
+
+.glossary-refs-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* A reference just jumped to from the glossary panel: a brief pulse over
+   the matched words, then gone (the highlight itself is removed shortly
+   after — see GLOSSARY_FLASH_MS). */
+.glossary-flash {
+  pointer-events: none;
+}
+
+.glossary-flash-part {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 2px;
+  background: rgba(255, 196, 0, 0.45);
+  box-shadow: 0 0 0 2px rgba(255, 170, 0, 0.7);
+  animation: glossary-flash 2.4s ease-out forwards;
+}
+
+@keyframes glossary-flash {
+  0% {
+    opacity: 0;
+  }
+  10%,
+  65% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glossary-flash-part,
+  .glossary-spinner,
+  .glossary-definition.is-streaming > :last-child::after {
+    animation: none;
+  }
+}
+
+/* Glossary terms marked in the PDF (see GlossaryMarks). Pages keep their
+   original (light) colors in both themes, so the underline color is fixed
+   rather than a theme token. */
+.glossary-marks-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.glossary-mark {
+  position: absolute;
+  border-bottom: 1.5px dotted rgba(40, 84, 161, 0.75);
+  pointer-events: none;
+}
+
+.glossary-hover-card {
+  position: fixed;
+  z-index: 40;
+}
+
+.glossary-hover-form {
+  margin: -0.15rem 0 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.glossary-marks-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 1rem 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
 }

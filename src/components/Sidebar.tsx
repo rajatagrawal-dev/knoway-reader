@@ -1,11 +1,14 @@
-import type { ReactNode } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { CommentedHighlight } from "../types";
-import type { DiveHighlight, DivePanel, Pin } from "../deepdive/types";
+import type { DiveHighlight, DivePanel, GeneralNote, Pin } from "../deepdive/types";
 import AnnotationsPanel from "./AnnotationsPanel";
 import TableOfContentsPanel from "./TableOfContentsPanel";
+import GlossaryPanel, { type GlossaryFocusRequest } from "./GlossaryPanel";
+import SearchPanel, { type SearchMatch } from "./SearchPanel";
+import type { GlossaryStore } from "../glossary/store";
+import type { GlossaryRef } from "../glossary/types";
 
-export type SidebarPanel = "annotations" | "toc";
+export type SidebarPanel = "annotations" | "toc" | "glossary" | "search";
 
 interface SidebarProps {
   highlights: CommentedHighlight[];
@@ -15,34 +18,36 @@ interface SidebarProps {
   scrolledToHighlightId: string | null;
   onJumpToHighlight: (highlight: CommentedHighlight) => void;
   onDeleteHighlight: (highlight: CommentedHighlight) => void;
+  onEditHighlightComment: (highlight: CommentedHighlight, comment: string) => void;
+  onEditFreetextText: (highlight: CommentedHighlight, text: string) => void;
+  onHoverHighlight: (highlightId: string | null) => void;
   onOpenDiveFromHighlight: (highlight: CommentedHighlight) => void;
   onDeletePin: (pinId: string) => void;
+  onEditPinComment: (pinId: string, comment: string) => void;
   onOpenDiveHighlight: (highlight: DiveHighlight) => void;
   onDeleteDiveHighlight: (highlightId: string) => void;
+  onEditDiveHighlightComment: (highlightId: string, comment: string) => void;
+  generalNotes: GeneralNote[];
+  onAddNote: (text: string) => void;
+  onEditGeneralNote: (id: string, text: string) => void;
+  onDeleteGeneralNote: (id: string) => void;
   activePanel: SidebarPanel | null;
   onSelectPanel: (panel: SidebarPanel) => void;
   pdfDocument: PDFDocumentProxy | null;
   pageLabels: string[] | null;
   currentPage: number;
   onGoToPage: (pageNumber: number) => void;
-}
-
-function AnnotationsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 3h12v18l-6-4-6 4V3z" />
-    </svg>
-  );
-}
-
-function TocIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <line x1="4" y1="6" x2="20" y2="6" />
-      <line x1="4" y1="12" x2="20" y2="12" />
-      <line x1="4" y1="18" x2="14" y2="18" />
-    </svg>
-  );
+  glossaryStore: GlossaryStore;
+  glossaryFocusRequest: GlossaryFocusRequest | null;
+  onJumpToGlossaryRef: (ref: GlossaryRef) => void;
+  onRetryGlossaryEntry: (entryId: string) => void;
+  onDeleteGlossaryEntry: (entryId: string) => void;
+  glossaryMarksVisible: boolean;
+  onGlossaryMarksVisibleChange: (visible: boolean) => void;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
+  searchFocusRequest: number;
+  onJumpToSearchMatch: (match: SearchMatch) => void;
 }
 
 function ChevronIcon({ direction }: { direction: "left" | "right" }) {
@@ -53,11 +58,6 @@ function ChevronIcon({ direction }: { direction: "left" | "right" }) {
   );
 }
 
-const RAIL_ITEMS: { id: SidebarPanel; label: string; icon: ReactNode }[] = [
-  { id: "toc", label: "Table of contents", icon: <TocIcon /> },
-  { id: "annotations", label: "Annotations", icon: <AnnotationsIcon /> },
-];
-
 export default function Sidebar({
   highlights,
   pins,
@@ -66,73 +66,108 @@ export default function Sidebar({
   scrolledToHighlightId,
   onJumpToHighlight,
   onDeleteHighlight,
+  onEditHighlightComment,
+  onEditFreetextText,
+  onHoverHighlight,
   onOpenDiveFromHighlight,
   onDeletePin,
+  onEditPinComment,
   onOpenDiveHighlight,
   onDeleteDiveHighlight,
+  onEditDiveHighlightComment,
+  generalNotes,
+  onAddNote,
+  onEditGeneralNote,
+  onDeleteGeneralNote,
   activePanel,
   onSelectPanel,
   pdfDocument,
   pageLabels,
   currentPage,
   onGoToPage,
+  glossaryStore,
+  glossaryFocusRequest,
+  onJumpToGlossaryRef,
+  onRetryGlossaryEntry,
+  onDeleteGlossaryEntry,
+  glossaryMarksVisible,
+  onGlossaryMarksVisibleChange,
+  searchQuery,
+  onSearchQueryChange,
+  searchFocusRequest,
+  onJumpToSearchMatch,
 }: SidebarProps) {
+  // The rail that picks the panel is AppRail, shared with Deep Dive; this is
+  // only the open panel itself.
+  if (!activePanel) return null;
+
   return (
     <aside className="sidebar">
-      <nav className="sidebar-rail">
-        {RAIL_ITEMS.map(({ id, label, icon }) => (
-          <button
-            key={id}
-            type="button"
-            className={`sidebar-rail-button${activePanel === id ? " active" : ""}`}
-            onClick={() => onSelectPanel(id)}
-            title={label}
-            aria-label={label}
-            aria-pressed={activePanel === id}
-          >
-            {icon}
-          </button>
-        ))}
-      </nav>
-
-      {activePanel ? (
-        <div className="sidebar-panel">
-          <button
-            type="button"
-            className="sidebar-collapse-button"
-            onClick={() => onSelectPanel(activePanel)}
-            title="Collapse panel"
-            aria-label="Collapse panel"
-          >
-            <ChevronIcon direction="left" />
-          </button>
-          {activePanel === "annotations" ? (
-            <AnnotationsPanel
-              highlights={highlights}
-              pins={pins}
-              panels={panels}
-              diveHighlights={diveHighlights}
-              scrolledToHighlightId={scrolledToHighlightId}
-              onJumpToHighlight={onJumpToHighlight}
-              onDeleteHighlight={onDeleteHighlight}
-              onOpenDiveFromHighlight={onOpenDiveFromHighlight}
-              onDeletePin={onDeletePin}
-              onOpenDiveHighlight={onOpenDiveHighlight}
-              onDeleteDiveHighlight={onDeleteDiveHighlight}
-              pageLabels={pageLabels}
-              pdfDocument={pdfDocument}
-              currentPage={currentPage}
-            />
-          ) : (
-            <TableOfContentsPanel
-              pdfDocument={pdfDocument}
-              currentPage={currentPage}
-              goToPage={onGoToPage}
-              pageLabels={pageLabels}
-            />
-          )}
-        </div>
-      ) : null}
+      <div className="sidebar-panel">
+        <button
+          type="button"
+          className="sidebar-collapse-button"
+          onClick={() => onSelectPanel(activePanel)}
+          title="Collapse panel"
+          aria-label="Collapse panel"
+        >
+          <ChevronIcon direction="left" />
+        </button>
+        {activePanel === "annotations" ? (
+          <AnnotationsPanel
+            highlights={highlights}
+            pins={pins}
+            panels={panels}
+            diveHighlights={diveHighlights}
+            scrolledToHighlightId={scrolledToHighlightId}
+            onJumpToHighlight={onJumpToHighlight}
+            onDeleteHighlight={onDeleteHighlight}
+            onEditHighlightComment={onEditHighlightComment}
+            onEditFreetextText={onEditFreetextText}
+            onHoverHighlight={onHoverHighlight}
+            onOpenDiveFromHighlight={onOpenDiveFromHighlight}
+            onDeletePin={onDeletePin}
+            onEditPinComment={onEditPinComment}
+            onOpenDiveHighlight={onOpenDiveHighlight}
+            onDeleteDiveHighlight={onDeleteDiveHighlight}
+            onEditDiveHighlightComment={onEditDiveHighlightComment}
+            generalNotes={generalNotes}
+            onAddNote={onAddNote}
+            onEditGeneralNote={onEditGeneralNote}
+            onDeleteGeneralNote={onDeleteGeneralNote}
+            pageLabels={pageLabels}
+            pdfDocument={pdfDocument}
+            currentPage={currentPage}
+          />
+        ) : activePanel === "search" ? (
+          <SearchPanel
+            pdfDocument={pdfDocument}
+            pageLabels={pageLabels}
+            query={searchQuery}
+            onQueryChange={onSearchQueryChange}
+            focusRequest={searchFocusRequest}
+            onJumpToMatch={onJumpToSearchMatch}
+          />
+        ) : activePanel === "glossary" ? (
+          <GlossaryPanel
+            store={glossaryStore}
+            pageLabels={pageLabels}
+            focusRequest={glossaryFocusRequest}
+            onJumpToRef={onJumpToGlossaryRef}
+            onRetry={onRetryGlossaryEntry}
+            onDelete={onDeleteGlossaryEntry}
+            marksVisible={glossaryMarksVisible}
+            onMarksVisibleChange={onGlossaryMarksVisibleChange}
+          />
+        ) : (
+          <TableOfContentsPanel
+            pdfDocument={pdfDocument}
+            currentPage={currentPage}
+            goToPage={onGoToPage}
+            pageLabels={pageLabels}
+          />
+        )}
+      </div>
     </aside>
   );
 }

@@ -14,10 +14,42 @@
   --border-strong: #ccc;
   --danger: #9a2b2b;
   --danger-tint: #f7ecec;
+  --on-link: #ffffff;
+  --code-bg: rgba(26, 26, 26, 0.08);
+  --hairline: rgba(26, 26, 26, 0.15);
+  --shadow-color: rgba(26, 26, 26, 0.12);
+  --pdf-canvas-bg: #efece5;
+  --pdf-scrollbar: #b7b3ab;
+  color-scheme: light;
   --font-serif:
     Georgia,
     "Times New Roman",
     serif;
+}
+
+/* Dark palette: same roles, inverted for a dim reading room. Toggled via
+   data-theme on <html> (see theme.ts). color-scheme makes native controls
+   (textareas, inputs, scrollbars) follow along. */
+:root[data-theme="dark"] {
+  --text: #e4e2dd;
+  --muted: #a09d96;
+  --rule: #4a4843;
+  --link: #8fb0e8;
+  --link-tint: #26303f;
+  --bg: #1e1d1b;
+  --panel-bg: #161514;
+  --border: #3a3834;
+  --border-soft: #2c2b28;
+  --border-strong: #4a4843;
+  --danger: #e38787;
+  --danger-tint: #3a2222;
+  --on-link: #10141b;
+  --code-bg: rgba(255, 255, 255, 0.08);
+  --hairline: rgba(255, 255, 255, 0.15);
+  --shadow-color: rgba(0, 0, 0, 0.5);
+  --pdf-canvas-bg: #2a2724;
+  --pdf-scrollbar: #57544d;
+  color-scheme: dark;
 }
 
 *,

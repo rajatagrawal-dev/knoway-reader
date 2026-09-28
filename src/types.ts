@@ -10,4 +10,9 @@ export interface CommentedHighlight extends Highlight {
   fontSize?: string;
   fontFamily?: string;
   divePanelId?: string;
+  // Unset on highlights saved before this was recorded.
+  createdAt?: string;
+  // A short-lived, never-saved highlight marking where a glossary reference
+  // jumped to (see App.tsx's jumpToGlossaryRef).
+  glossaryFlash?: boolean;
 }

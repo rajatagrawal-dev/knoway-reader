@@ -6,16 +6,21 @@
   "scripts": {
     "dev": "concurrently -n vite,server -c blue,green \"vite\" \"node server/index.js\"",
     "build": "tsc -b && vite build",
+    "build:server": "node scripts/build-server.mjs",
     "start": "NODE_ENV=production node server/index.js",
     "server": "node server/index.js",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --test server/*.test.js"
+    "test": "node --test server/*.test.js server/providers/*.test.js src/glossary/*.test.ts",
+    "tauri": "tauri",
+    "postinstall": "patch-package"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
     "express": "^5.2.1",
     "katex": "^0.18.4",
     "lucide-react": "^0.559.0",
+    "openai": "^7.15.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -26,12 +31,15 @@
     "remark-math": "^6.0.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^24.13.3",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.0.4",
     "concurrently": "^10.0.5",
+    "esbuild": "^0.28.2",
     "oxlint": "^1.75.0",
+    "patch-package": "^8.0.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
   }

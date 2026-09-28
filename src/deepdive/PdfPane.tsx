@@ -2,19 +2,33 @@ import { useEffect, useRef, useState } from "react";
 import {
   PdfHighlighter,
   PdfLoader,
+  viewportPositionToScaled,
   type GhostHighlight,
+  type PdfHighlighterTheme,
   type PdfHighlighterUtils,
   type PdfScaleValue,
   type ScaledPosition,
 } from "react-pdf-highlighter-plus";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import ExpandableTip from "../components/ExpandableTip";
+import ExpandableTip, { type GlossaryTipBindings } from "../components/ExpandableTip";
 import HighlightContainer from "../components/HighlightContainer";
 import type { CommentedHighlight } from "../types";
 import pdfWorkerUrl from "../pdfWorker";
 import { extractPageContext } from "./pdfContext";
+import GlossaryMarks from "../glossary/GlossaryMarks";
+import type { HighlightPen, Tool } from "../components/AppRail";
 
 export type PdfSource = string | Uint8Array;
+
+// The library paints the area around the pages with an inline style, so point
+// it at CSS variables (index.css) that follow the app's light/dark theme.
+// mode stays "light" on purpose: the library's dark mode would also invert
+// the page content, and pages should keep their original colors.
+const PDF_VIEWER_THEME: PdfHighlighterTheme = {
+  mode: "light",
+  containerBackgroundColor: "var(--pdf-canvas-bg)",
+  scrollbarThumbColor: "var(--pdf-scrollbar)",
+};
 
 // PdfLoader invokes its children render-prop synchronously during its own
 // render, so calling a state setter directly from that closure would update
@@ -38,8 +52,11 @@ function DocumentReadySignal({
 export interface PdfPaneProps {
   source: PdfSource;
   highlights: CommentedHighlight[];
-  areaMode: boolean;
-  freetextMode: boolean;
+  // The rail's current tool (see AppRail). Highlight and Area turn a
+  // finished selection straight into a highlight in `pen`'s color/style,
+  // with no selection tip; Sticky note places a note on the next click.
+  tool: Tool;
+  pen: HighlightPen;
   onFreetextClick: (position: ScaledPosition) => void;
   addHighlight: (
     highlight: GhostHighlight,
@@ -50,6 +67,8 @@ export interface PdfPaneProps {
   deleteHighlight: (id: string) => void;
   utilsRef: (utils: PdfHighlighterUtils) => void;
   onOpenDive: (divePanelId: string) => void;
+  // Whether this dive is the one currently open — see HighlightContainer.
+  isDiveOpen: (divePanelId: string) => boolean;
   onDiveDeeper: (request: { highlight: GhostHighlight; contextText: string }) => void;
   onDiveIntoExisting: (request: {
     highlightId: string;
@@ -57,6 +76,13 @@ export interface PdfPaneProps {
     contextText: string;
   }) => void;
   onPin: (selection: string, contextText: string) => void;
+  glossary: GlossaryTipBindings;
+  // Dotted underlines (with hover definitions) on glossary terms in the text.
+  glossaryMarks: boolean;
+  // Collapses every sticky note on the page to a small comment-icon marker
+  // (see the toolbar toggle in App.tsx) — threaded down to HighlightContainer,
+  // which passes it on as FreetextHighlight's own `compact` prop.
+  notesCollapsed: boolean;
   initialPage?: number;
   onPageChange?: (pageNumber: number) => void;
   onDocumentReady?: (pdfDocument: PDFDocumentProxy) => void;
@@ -77,17 +103,21 @@ export interface PdfPaneProps {
 export default function PdfPane({
   source,
   highlights,
-  areaMode,
-  freetextMode,
+  tool,
+  pen,
   onFreetextClick,
   addHighlight,
   editHighlight,
   deleteHighlight,
   utilsRef,
   onOpenDive,
+  isDiveOpen,
   onDiveDeeper,
   onDiveIntoExisting,
   onPin,
+  glossary,
+  glossaryMarks,
+  notesCollapsed,
   initialPage,
   onPageChange,
   onDocumentReady,
@@ -106,7 +136,44 @@ export default function PdfPane({
     source instanceof Uint8Array ? source.slice() : source,
   );
 
+  const areaMode = tool === "area";
+  const freetextMode = tool === "note";
+  const autoHighlight = tool === "highlight" || tool === "area";
+
   const highlighterUtilsRef = useRef<PdfHighlighterUtils | null>(null);
+  const viewerContainerRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // Lets a user place a note anywhere by right-clicking, with no mode toggle
+  // needed first — mirrors the click-to-place math the library itself does
+  // internally for onFreetextClick (see its handleMouseDown), since that
+  // conversion isn't otherwise exposed for an arbitrary point.
+  const [noteContextMenu, setNoteContextMenu] = useState<{
+    x: number;
+    y: number;
+    position: ScaledPosition;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!noteContextMenu) return;
+    const handleMouseDown = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setNoteContextMenu(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNoteContextMenu(null);
+    };
+    const handleScroll = () => setNoteContextMenu(null);
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("keydown", handleKeyDown);
+    viewerContainerRef.current?.addEventListener("scroll", handleScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      viewerContainerRef.current?.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [noteContextMenu]);
 
   // Snapshot the page to restore only once, at PdfPane's one real mount
   // (initial PDF load — see PersistentPdfPane). `initialPage` itself
@@ -184,7 +251,79 @@ export default function PdfPane({
   }, [scrollToHighlightAtMount]);
 
   return (
-    <div className="pdf-pane-viewer">
+    <div
+      className="pdf-pane-viewer"
+      data-tool={tool}
+      ref={viewerContainerRef}
+      // In Highlight mode an existing highlight is only clickable (opening
+      // its toolbar, as in any mode) — a drag starting on it must not select
+      // its text again and stack a second highlight on top. Preventing the
+      // mousedown default stops the text selection without affecting the
+      // click (the library listens to pointer events).
+      //
+      // An area drag (Area mode, or Alt held) must not start a native text
+      // selection either: the library flips the viewer to user-select: none
+      // mid-drag, and WebKit then extends the in-progress selection across the
+      // whole document, as if Cmd+A had been pressed.
+      onMouseDownCapture={(event) => {
+        const target = event.target as HTMLElement;
+        if (
+          (areaMode || event.altKey) &&
+          event.button === 0 &&
+          target.closest(".page") &&
+          !target.closest("input, textarea, select, [contenteditable]")
+        ) {
+          event.preventDefault();
+          window.getSelection()?.removeAllRanges();
+          return;
+        }
+        if (tool !== "highlight") return;
+        if (target.closest(".TextHighlight__part, .AreaHighlight__part")) event.preventDefault();
+      }}
+      onContextMenu={(event) => {
+        const targetEl = event.target as HTMLElement;
+        const pageEl = targetEl.closest<HTMLElement>(".page");
+        const viewer = highlighterUtilsRef.current?.getViewer();
+        if (!pageEl || !viewer) return;
+        const pageNumberAttr = pageEl.getAttribute("data-page-number");
+        const pageNumber = pageNumberAttr ? Number(pageNumberAttr) : NaN;
+        if (!Number.isFinite(pageNumber)) return;
+        event.preventDefault();
+        const pageRect = pageEl.getBoundingClientRect();
+        const scaledPosition = viewportPositionToScaled(
+          {
+            boundingRect: {
+              left: event.clientX - pageRect.left,
+              top: event.clientY - pageRect.top,
+              width: 150,
+              height: 80,
+              pageNumber,
+            },
+            rects: [],
+          },
+          viewer,
+        );
+        setNoteContextMenu({ x: event.clientX, y: event.clientY, position: scaledPosition });
+      }}
+    >
+      {noteContextMenu ? (
+        <div
+          ref={contextMenuRef}
+          className="pdf-context-menu"
+          style={{ top: noteContextMenu.y, left: noteContextMenu.x }}
+        >
+          <button
+            type="button"
+            className="pdf-context-menu-item"
+            onClick={() => {
+              onFreetextClick(noteContextMenu.position);
+              setNoteContextMenu(null);
+            }}
+          >
+            Add note here
+          </button>
+        </div>
+      ) : null}
       <PdfLoader
         document={stableSource}
         workerSrc={pdfWorkerUrl}
@@ -195,8 +334,16 @@ export default function PdfPane({
           return (
             <>
               <DocumentReadySignal pdfDocument={pdfDocument} onDocumentReady={onDocumentReady} />
+              <GlossaryMarks
+                pdfDocument={pdfDocument}
+                utilsRef={highlighterUtilsRef}
+                store={glossary.store}
+                enabled={glossaryMarks}
+                onOpenInGlossary={glossary.onOpenInGlossary}
+              />
               <PdfHighlighter
                 pdfDocument={pdfDocument}
+                theme={PDF_VIEWER_THEME}
                 highlights={highlights}
                 enableAreaSelection={(event) => event.altKey || areaMode}
                 areaSelectionMode={areaMode}
@@ -206,21 +353,37 @@ export default function PdfPane({
                 onPageChange={onPageChange}
                 pdfScaleValue={pdfScaleValue}
                 onZoomChange={onZoomChange}
+                onSelection={(selection) => {
+                  if (!autoHighlight) return;
+                  if (selection.type !== "area" && !selection.content.text?.trim()) return;
+                  const style =
+                    selection.type === "area"
+                      ? { highlightColor: pen.color }
+                      : { highlightColor: pen.color, highlightStyle: pen.style };
+                  // Same sequence as the selection tip's own finalize (see
+                  // ExpandableTip): makeGhostHighlight clears the selection,
+                  // removeGhostHighlight ends the library's editing state.
+                  addHighlight(selection.makeGhostHighlight(), "", style);
+                  highlighterUtilsRef.current?.removeGhostHighlight();
+                }}
                 selectionTip={
-                  <ExpandableTip
-                    addHighlight={addHighlight}
-                    onDiveDeeper={async (highlight) => {
-                      const contextText = await extractPageContext(
-                        pdfDocumentRef.current!,
-                        highlight.position.boundingRect.pageNumber,
-                      );
-                      onDiveDeeper({ highlight, contextText });
-                    }}
-                    onPin={async (selection, pageNumber) => {
-                      const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
-                      onPin(selection, contextText);
-                    }}
-                  />
+                  autoHighlight ? undefined : (
+                    <ExpandableTip
+                      addHighlight={addHighlight}
+                      onDiveDeeper={async (highlight) => {
+                        const contextText = await extractPageContext(
+                          pdfDocumentRef.current!,
+                          highlight.position.boundingRect.pageNumber,
+                        );
+                        onDiveDeeper({ highlight, contextText });
+                      }}
+                      onPin={async (selection, pageNumber) => {
+                        const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
+                        onPin(selection, contextText);
+                      }}
+                      glossary={glossary}
+                    />
+                  )
                 }
                 utilsRef={(utils) => {
                   highlighterUtilsRef.current = utils;
@@ -231,7 +394,9 @@ export default function PdfPane({
                 <HighlightContainer
                   editHighlight={editHighlight}
                   deleteHighlight={deleteHighlight}
+                  notesCollapsed={notesCollapsed}
                   onOpenDive={onOpenDive}
+                  isDiveOpen={isDiveOpen}
                   onStartDive={async (highlightId, content, pageNumber) => {
                     const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
                     onDiveIntoExisting({ highlightId, content, contextText });

@@ -25,6 +25,15 @@ export interface Pin {
   id: string;
   text: string;
   context: string;
+  comment?: string;
+  createdAt: string;
+}
+
+// A freeform note with no anchor to any page or selection — for jotting
+// something down that isn't "about" a specific spot in the document.
+export interface GeneralNote {
+  id: string;
+  text: string;
   createdAt: string;
 }
 
@@ -45,8 +54,15 @@ export interface DiveHighlight {
   // it (via DiveControl) returns to that same nested dive instead of
   // starting a new one each time — mirrors CommentedHighlight.divePanelId.
   divePanelId?: string;
+  // Where in the panel the highlighted text is: the turn, and which copy of
+  // `text` within that turn (0 = first). Unset on highlights saved before
+  // this was recorded, which fall back to the first match in any turn.
+  turnIndex?: number;
+  occurrence?: number;
   createdAt: string;
 }
+
+export type DiveHighlightPlacement = Pick<DiveHighlight, "turnIndex" | "occurrence">;
 
 export interface ChainEntry {
   id: string | null; // null = the PDF root

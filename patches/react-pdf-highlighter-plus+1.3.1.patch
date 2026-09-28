@@ -1,0 +1,896 @@
+diff --git a/node_modules/react-pdf-highlighter-plus/dist/esm/index.d.ts b/node_modules/react-pdf-highlighter-plus/dist/esm/index.d.ts
+index f409928..6348bc1 100644
+--- a/node_modules/react-pdf-highlighter-plus/dist/esm/index.d.ts
++++ b/node_modules/react-pdf-highlighter-plus/dist/esm/index.d.ts
+@@ -838,13 +838,27 @@ interface TextHighlightProps {
+      * toggle).
+      */
+     extraPanel?: ReactNode;
++    /**
++     * Replaces the built-in toolbar (buttons row, style/color row and
++     * extraPanel) with custom content, rendered inside the positioned
++     * toolbar group. `visible` is true while the highlight is selected or
++     * scrolled-to.
++     */
++    renderToolbar?: (state: {
++        visible: boolean;
++    }) => ReactNode;
++    /**
++     * Called on click before the highlight becomes selected (showing its
++     * toolbar); returning false leaves it unselected.
++     */
++    shouldSelect?: () => boolean;
+ }
+ /**
+  * A component for displaying a highlighted text area.
+  *
+  * @category Component
+  */
+-declare const TextHighlight: React.MemoExoticComponent<({ highlight, onClick, onMouseOver, onMouseOut, isScrolledTo, onContextMenu, style, highlightColor, highlightStyle, onStyleChange, onDelete, styleIcon, deleteIcon, copyText, colorPresets, extraButtons, extraPanel, }: TextHighlightProps) => React.JSX.Element>;
++declare const TextHighlight: React.MemoExoticComponent<({ highlight, onClick, onMouseOver, onMouseOut, isScrolledTo, onContextMenu, style, highlightColor, highlightStyle, onStyleChange, onDelete, styleIcon, deleteIcon, copyText, colorPresets, extraButtons, extraPanel, renderToolbar, shouldSelect, }: TextHighlightProps) => React.JSX.Element>;
+ 
+ /**
+  * The props type for {@link MonitoredHighlightContainer}.
+@@ -966,13 +980,27 @@ interface AreaHighlightProps {
+      * toggle).
+      */
+     extraPanel?: ReactNode;
++    /**
++     * Replaces the built-in toolbar (buttons row, style/color row and
++     * extraPanel) with custom content, rendered inside the positioned
++     * toolbar group. `visible` is true while the highlight is selected or
++     * scrolled-to.
++     */
++    renderToolbar?: (state: {
++        visible: boolean;
++    }) => ReactNode;
++    /**
++     * Called on click before the highlight becomes selected (showing its
++     * toolbar); returning false leaves it unselected.
++     */
++    shouldSelect?: () => boolean;
+ }
+ /**
+  * Renders a resizeable and interactive rectangular area for a highlight.
+  *
+  * @category Component
+  */
+-declare const AreaHighlight: React.MemoExoticComponent<({ highlight, onChange, isScrolledTo, bounds, onContextMenu, onEditStart, style, highlightColor, onStyleChange, onDelete, deleteIcon, copyText, colorPresets, extraButtons, extraPanel, }: AreaHighlightProps) => React.JSX.Element>;
++declare const AreaHighlight: React.MemoExoticComponent<({ highlight, onChange, isScrolledTo, bounds, onContextMenu, onEditStart, style, highlightColor, onStyleChange, onDelete, deleteIcon, copyText, colorPresets, extraButtons, extraPanel, renderToolbar, shouldSelect, }: AreaHighlightProps) => React.JSX.Element>;
+ 
+ /**
+  * Style options for freetext highlight appearance.
+@@ -1073,6 +1101,21 @@ interface FreetextHighlightProps {
+      * Default: ["#333333", "#d32f2f", "#1976d2", "#388e3c", "#7b1fa2"]
+      */
+     textColorPresets?: string[];
++    /**
++     * Display names for background color presets, keyed by color value.
++     */
++    backgroundColorNames?: Record<string, string>;
++    /**
++     * Display names (tooltips) for text color presets, keyed by color value.
++     */
++    textColorNames?: Record<string, string>;
++    /**
++     * Options for the font picker in the style panel.
++     */
++    fontFamilyOptions?: {
++        value: string;
++        label: string;
++    }[];
+     /**
+      * Callback triggered when the delete button is clicked.
+      */
+@@ -1094,7 +1137,7 @@ interface FreetextHighlightProps {
+      */
+     compactIcon?: ReactNode;
+ }
+-declare const FreetextHighlight: ({ highlight, onChange, onTextChange, onStyleChange, isScrolledTo, bounds, onContextMenu, onEditStart, onEditEnd, style, color, backgroundColor, fontFamily, fontSize, dragIcon, editIcon, styleIcon, backgroundColorPresets, textColorPresets, onDelete, deleteIcon, compact, compactSize, compactIcon, }: FreetextHighlightProps) => React.JSX.Element;
++declare const FreetextHighlight: ({ highlight, onChange, onTextChange, onStyleChange, isScrolledTo, bounds, onContextMenu, onEditStart, onEditEnd, style, color, backgroundColor, fontFamily, fontSize, dragIcon, editIcon, styleIcon, backgroundColorPresets, textColorPresets, backgroundColorNames, textColorNames, fontFamilyOptions, onDelete, deleteIcon, compact, compactSize, compactIcon, }: FreetextHighlightProps) => React.JSX.Element;
+ 
+ /**
+  * The props type for {@link ImageHighlight}.
+diff --git a/node_modules/react-pdf-highlighter-plus/dist/esm/index.js b/node_modules/react-pdf-highlighter-plus/dist/esm/index.js
+index 2666d4c..dfe3827 100644
+--- a/node_modules/react-pdf-highlighter-plus/dist/esm/index.js
++++ b/node_modules/react-pdf-highlighter-plus/dist/esm/index.js
+@@ -1624,6 +1624,9 @@ var PdfHighlighter = ({
+     resizeObserverRef.current.observe(containerNodeRef.current);
+     const doc = containerNodeRef.current.ownerDocument;
+     const handlePageRendered = () => renderHighlightLayers(true);
++    const handleScaleChanging = () => renderHighlightLayers();
++    eventBusRef.current.on("scalechanging", handleScaleChanging);
++    eventBusRef.current.on("rotationchanging", handleScaleChanging);
+     eventBusRef.current.on("textlayerrendered", handlePageRendered);
+     eventBusRef.current.on("pagerendered", handlePageRendered);
+     eventBusRef.current.on("pagesinit", handleScaleValue);
+@@ -1635,6 +1638,8 @@ var PdfHighlighter = ({
+     scheduleRenderHighlightLayers();
+     return () => {
+       eventBusRef.current.off("pagesinit", handleScaleValue);
++      eventBusRef.current.off("scalechanging", handleScaleChanging);
++      eventBusRef.current.off("rotationchanging", handleScaleChanging);
+       eventBusRef.current.off("pagerendered", handlePageRendered);
+       eventBusRef.current.off("textlayerrendered", handlePageRendered);
+       doc.removeEventListener("keydown", handleKeyDown);
+@@ -2548,15 +2553,13 @@ var TextHighlight = memo(({
+   copyText,
+   colorPresets = DEFAULT_COLOR_PRESETS,
+   extraButtons,
+-  extraPanel
++  extraPanel,
++  renderToolbar,
++  shouldSelect
+ }) => {
+-  const [isStylePanelOpen, setIsStylePanelOpen] = useState(false);
+-  const [isColorMenuOpen, setIsColorMenuOpen] = useState(false);
+   const [isSelected, setIsSelected] = useState(false);
+   const [isCopied, setIsCopied] = useState(false);
+   const [configLayer, setConfigLayer] = useState(null);
+-  const stylePanelRef = useRef(null);
+-  const colorMenuRef = useRef(null);
+   const containerRef = useRef(null);
+   const toolbarWrapperRef = useRef(null);
+   const copyResetTimeoutRef = useRef(null);
+@@ -2568,15 +2571,11 @@ var TextHighlight = memo(({
+       const insideToolbar = toolbarWrapperRef.current?.contains(target);
+       if (!insideRoot && !insideToolbar) {
+         setIsSelected(false);
+-        setIsStylePanelOpen(false);
+-        setIsColorMenuOpen(false);
+       }
+     };
+     const handleKey = (e) => {
+       if (e.key === "Escape") {
+         setIsSelected(false);
+-        setIsStylePanelOpen(false);
+-        setIsColorMenuOpen(false);
+       }
+     };
+     document.addEventListener("mousedown", handlePointerDown);
+@@ -2599,36 +2598,6 @@ var TextHighlight = memo(({
+       }
+     };
+   }, []);
+-  useEffect(() => {
+-    if (!isStylePanelOpen) return;
+-    const handleClickOutside = (e) => {
+-      if (stylePanelRef.current && !stylePanelRef.current.contains(e.target)) {
+-        setIsStylePanelOpen(false);
+-      }
+-    };
+-    const timeoutId = setTimeout(() => {
+-      document.addEventListener("mousedown", handleClickOutside);
+-    }, 0);
+-    return () => {
+-      clearTimeout(timeoutId);
+-      document.removeEventListener("mousedown", handleClickOutside);
+-    };
+-  }, [isStylePanelOpen]);
+-  useEffect(() => {
+-    if (!isColorMenuOpen) return;
+-    const handleClickOutside = (e) => {
+-      if (colorMenuRef.current && !colorMenuRef.current.contains(e.target)) {
+-        setIsColorMenuOpen(false);
+-      }
+-    };
+-    const timeoutId = setTimeout(() => {
+-      document.addEventListener("mousedown", handleClickOutside);
+-    }, 0);
+-    return () => {
+-      clearTimeout(timeoutId);
+-      document.removeEventListener("mousedown", handleClickOutside);
+-    };
+-  }, [isColorMenuOpen]);
+   const highlightClass = isScrolledTo ? "TextHighlight--scrolledTo" : "";
+   const selectedClass = isSelected ? "TextHighlight--selected" : "";
+   const { rects } = highlight.position;
+@@ -2689,136 +2658,96 @@ var TextHighlight = memo(({
+         /* @__PURE__ */ React11.createElement(
+           "div",
+           {
+-            className: `TextHighlight__toolbar ${flipToolbar ? "TextHighlight__toolbar--below" : ""} ${isSelected || isScrolledTo || isStylePanelOpen || isColorMenuOpen ? "TextHighlight__toolbar--visible" : ""}`
++            className: `TextHighlight__toolbar-group ${flipToolbar ? "TextHighlight__toolbar-group--below" : ""} ${isSelected || isScrolledTo ? "TextHighlight__toolbar-group--visible" : ""}`
+           },
+-          onStyleChange && /* @__PURE__ */ React11.createElement(React11.Fragment, null, /* @__PURE__ */ React11.createElement(
+-            "button",
++          renderToolbar ? renderToolbar({ visible: isSelected || isScrolledTo }) : /* @__PURE__ */ React11.createElement(React11.Fragment, null, /* @__PURE__ */ React11.createElement(
++            "div",
+             {
+-              type: "button",
+-              className: "TextHighlight__color-trigger",
+-              "aria-label": "Highlight color",
+-              "aria-expanded": isColorMenuOpen,
+-              onClick: (e) => {
+-                e.stopPropagation();
+-                setIsStylePanelOpen(false);
+-                setIsColorMenuOpen((v) => !v);
+-              },
+-              title: "Highlight color"
++              className: "TextHighlight__toolbar"
+             },
+             /* @__PURE__ */ React11.createElement(
+-              "span",
++              "button",
+               {
+-                className: "TextHighlight__color-trigger-dot",
+-                style: { backgroundColor: highlightColor }
+-              }
++                className: "TextHighlight__copy-button",
++                onClick: handleCopy,
++                title: isCopied ? "Copied" : "Copy text",
++                type: "button"
++              },
++              isCopied ? /* @__PURE__ */ React11.createElement(DefaultCopiedIcon, null) : /* @__PURE__ */ React11.createElement(DefaultCopyIcon, null)
+             ),
+-            /* @__PURE__ */ React11.createElement(ChevronDownIcon, null)
+-          ), /* @__PURE__ */ React11.createElement("div", { className: "TextHighlight__toolbar-divider" })),
+-          onStyleChange && /* @__PURE__ */ React11.createElement(
+-            "button",
+-            {
+-              className: "TextHighlight__style-button",
+-              onClick: (e) => {
+-                e.stopPropagation();
+-                setIsColorMenuOpen(false);
+-                setIsStylePanelOpen(!isStylePanelOpen);
++            extraButtons,
++            onDelete && /* @__PURE__ */ React11.createElement(
++              "button",
++              {
++                className: "TextHighlight__delete-button",
++                onClick: (e) => {
++                  e.stopPropagation();
++                  onDelete();
++                },
++                title: "Delete",
++                type: "button"
+               },
+-              title: "Change style",
+-              type: "button"
+-            },
+-            styleIcon || /* @__PURE__ */ React11.createElement(DefaultStyleIcon, null)
+-          ),
+-          /* @__PURE__ */ React11.createElement(
+-            "button",
+-            {
+-              className: "TextHighlight__copy-button",
+-              onClick: handleCopy,
+-              title: isCopied ? "Copied" : "Copy text",
+-              type: "button"
+-            },
+-            isCopied ? /* @__PURE__ */ React11.createElement(DefaultCopiedIcon, null) : /* @__PURE__ */ React11.createElement(DefaultCopyIcon, null)
++              deleteIcon || /* @__PURE__ */ React11.createElement(DefaultDeleteIcon, null)
++            )
+           ),
+-          extraButtons,
+-          onDelete && /* @__PURE__ */ React11.createElement(
+-            "button",
++          (isSelected || isScrolledTo) && onStyleChange && /* @__PURE__ */ React11.createElement(
++            "div",
+             {
+-              className: "TextHighlight__delete-button",
+-              onClick: (e) => {
+-                e.stopPropagation();
+-                onDelete();
+-              },
+-              title: "Delete",
+-              type: "button"
++              className: "TextHighlight__color-row",
++              onClick: (e) => e.stopPropagation()
+             },
+-            deleteIcon || /* @__PURE__ */ React11.createElement(DefaultDeleteIcon, null)
+-          )
+-        ),
+-        isStylePanelOpen && onStyleChange && /* @__PURE__ */ React11.createElement(
+-          "div",
+-          {
+-            className: "TextHighlight__style-panel",
+-            ref: stylePanelRef,
+-            onClick: (e) => e.stopPropagation()
+-          },
+-          /* @__PURE__ */ React11.createElement("div", { className: "TextHighlight__style-row" }, /* @__PURE__ */ React11.createElement("label", null, "Style"), /* @__PURE__ */ React11.createElement("div", { className: "TextHighlight__style-buttons" }, /* @__PURE__ */ React11.createElement(
++          /* @__PURE__ */ React11.createElement(
+             "button",
+             {
+               type: "button",
+-              className: `TextHighlight__style-type-button ${highlightStyle === "highlight" ? "active" : ""}`,
++              className: `TextHighlight__color-row-style ${(highlightStyle || "highlight") === "highlight" ? "active" : ""}`,
+               onClick: () => onStyleChange({ highlightStyle: "highlight" }),
+               title: "Highlight"
+             },
+             /* @__PURE__ */ React11.createElement(HighlightIcon, null)
+-          ), /* @__PURE__ */ React11.createElement(
++          ),
++          /* @__PURE__ */ React11.createElement(
+             "button",
+             {
+               type: "button",
+-              className: `TextHighlight__style-type-button ${highlightStyle === "underline" ? "active" : ""}`,
++              className: `TextHighlight__color-row-style ${highlightStyle === "underline" ? "active" : ""}`,
+               onClick: () => onStyleChange({ highlightStyle: "underline" }),
+               title: "Underline"
+             },
+             /* @__PURE__ */ React11.createElement(UnderlineIcon, null)
+-          ), /* @__PURE__ */ React11.createElement(
++          ),
++          /* @__PURE__ */ React11.createElement(
+             "button",
+             {
+               type: "button",
+-              className: `TextHighlight__style-type-button ${highlightStyle === "strikethrough" ? "active" : ""}`,
++              className: `TextHighlight__color-row-style ${highlightStyle === "strikethrough" ? "active" : ""}`,
+               onClick: () => onStyleChange({ highlightStyle: "strikethrough" }),
+               title: "Strikethrough"
+             },
+             /* @__PURE__ */ React11.createElement(StrikethroughIcon, null)
+-          )))
+-        ),
+-        isColorMenuOpen && onStyleChange && /* @__PURE__ */ React11.createElement(
+-          "div",
+-          {
+-            className: "TextHighlight__color-menu",
+-            ref: colorMenuRef,
+-            onClick: (e) => e.stopPropagation()
+-          },
++          ),
++          /* @__PURE__ */ React11.createElement("div", { className: "TextHighlight__toolbar-divider" }),
+           colorPresets.map((c) => /* @__PURE__ */ React11.createElement(
+             "button",
+             {
+               key: c,
+               type: "button",
+-              className: "TextHighlight__color-menu-item",
+-              onClick: () => {
+-                onStyleChange({ highlightColor: c });
+-                setIsColorMenuOpen(false);
+-              }
++              className: "TextHighlight__color-row-item",
++              title: COLOR_NAMES[c] || c,
++              onClick: () => onStyleChange({ highlightColor: c })
+             },
+             /* @__PURE__ */ React11.createElement(
+               "span",
+               {
+-                className: "TextHighlight__color-menu-dot",
++                className: "TextHighlight__color-row-dot",
+                 style: { backgroundColor: c }
+-              }
+-            ),
+-            /* @__PURE__ */ React11.createElement("span", { className: "TextHighlight__color-menu-label" }, COLOR_NAMES[c] || c),
+-            highlightColor === c && /* @__PURE__ */ React11.createElement("span", { className: "TextHighlight__color-menu-check" }, /* @__PURE__ */ React11.createElement(CheckIcon, null))
++              },
++              highlightColor === c && /* @__PURE__ */ React11.createElement(CheckIcon, null)
++            )
+           ))
+         ),
+-        extraPanel
++          extraPanel)
++        )
+       ),
+       configLayer
+     ),
+@@ -2833,6 +2762,7 @@ var TextHighlight = memo(({
+           onMouseOver,
+           onMouseOut,
+           onClick: (event) => {
++            if (shouldSelect && !shouldSelect()) return;
+             setIsSelected(true);
+             onClick?.(event);
+           },
+@@ -2960,13 +2890,13 @@ var AreaHighlight = memo(({
+   copyText,
+   colorPresets = DEFAULT_COLOR_PRESETS2,
+   extraButtons,
+-  extraPanel
++  extraPanel,
++  renderToolbar,
++  shouldSelect
+ }) => {
+-  const [isColorMenuOpen, setIsColorMenuOpen] = useState(false);
+   const [isSelected, setIsSelected] = useState(false);
+   const [isCopied, setIsCopied] = useState(false);
+   const [configLayer, setConfigLayer] = useState(null);
+-  const colorMenuRef = useRef(null);
+   const containerRef = useRef(null);
+   const toolbarWrapperRef = useRef(null);
+   const copyResetTimeoutRef = useRef(null);
+@@ -2978,13 +2908,11 @@ var AreaHighlight = memo(({
+       const insideToolbar = toolbarWrapperRef.current?.contains(target);
+       if (!insideRoot && !insideToolbar) {
+         setIsSelected(false);
+-        setIsColorMenuOpen(false);
+       }
+     };
+     const handleKey = (e) => {
+       if (e.key === "Escape") {
+         setIsSelected(false);
+-        setIsColorMenuOpen(false);
+       }
+     };
+     document.addEventListener("mousedown", handlePointerDown);
+@@ -3007,21 +2935,6 @@ var AreaHighlight = memo(({
+       }
+     };
+   }, []);
+-  useEffect(() => {
+-    if (!isColorMenuOpen) return;
+-    const handleClickOutside = (e) => {
+-      if (colorMenuRef.current && !colorMenuRef.current.contains(e.target)) {
+-        setIsColorMenuOpen(false);
+-      }
+-    };
+-    const timeoutId = setTimeout(() => {
+-      document.addEventListener("mousedown", handleClickOutside);
+-    }, 0);
+-    return () => {
+-      clearTimeout(timeoutId);
+-      document.removeEventListener("mousedown", handleClickOutside);
+-    };
+-  }, [isColorMenuOpen]);
+   const highlightClass = isScrolledTo ? "AreaHighlight--scrolledTo" : "";
+   const selectedClass = isSelected ? "AreaHighlight--selected" : "";
+   const flipToolbar = highlight.position.boundingRect.top < 40;
+@@ -3068,85 +2981,65 @@ var AreaHighlight = memo(({
+         /* @__PURE__ */ React11.createElement(
+           "div",
+           {
+-            className: `AreaHighlight__toolbar ${flipToolbar ? "AreaHighlight__toolbar--below" : ""} ${isSelected || isScrolledTo || isColorMenuOpen ? "AreaHighlight__toolbar--visible" : ""}`
++            className: `AreaHighlight__toolbar-group ${flipToolbar ? "AreaHighlight__toolbar-group--below" : ""} ${isSelected || isScrolledTo ? "AreaHighlight__toolbar-group--visible" : ""}`
+           },
+-          onStyleChange && /* @__PURE__ */ React11.createElement(React11.Fragment, null, /* @__PURE__ */ React11.createElement(
+-            "button",
++          renderToolbar ? renderToolbar({ visible: isSelected || isScrolledTo }) : /* @__PURE__ */ React11.createElement(React11.Fragment, null, /* @__PURE__ */ React11.createElement(
++            "div",
+             {
+-              type: "button",
+-              className: "AreaHighlight__color-trigger",
+-              "aria-label": "Highlight color",
+-              "aria-expanded": isColorMenuOpen,
+-              onClick: (e) => {
+-                e.stopPropagation();
+-                setIsColorMenuOpen((v) => !v);
+-              },
+-              title: "Highlight color"
++              className: "AreaHighlight__toolbar"
+             },
+             /* @__PURE__ */ React11.createElement(
+-              "span",
++              "button",
+               {
+-                className: "AreaHighlight__color-trigger-dot",
+-                style: { backgroundColor: highlightColor }
+-              }
++                className: "AreaHighlight__copy-button",
++                onClick: handleCopy,
++                title: isCopied ? "Copied" : "Copy text",
++                type: "button"
++              },
++              isCopied ? /* @__PURE__ */ React11.createElement(DefaultCopiedIcon2, null) : /* @__PURE__ */ React11.createElement(DefaultCopyIcon2, null)
+             ),
+-            /* @__PURE__ */ React11.createElement(ChevronDownIcon2, null)
+-          ), /* @__PURE__ */ React11.createElement("div", { className: "AreaHighlight__toolbar-divider" })),
+-          /* @__PURE__ */ React11.createElement(
+-            "button",
+-            {
+-              className: "AreaHighlight__copy-button",
+-              onClick: handleCopy,
+-              title: isCopied ? "Copied" : "Copy text",
+-              type: "button"
+-            },
+-            isCopied ? /* @__PURE__ */ React11.createElement(DefaultCopiedIcon2, null) : /* @__PURE__ */ React11.createElement(DefaultCopyIcon2, null)
+-          ),
+-          extraButtons,
+-          onDelete && /* @__PURE__ */ React11.createElement(
+-            "button",
+-            {
+-              className: "AreaHighlight__delete-button",
+-              onClick: (e) => {
+-                e.stopPropagation();
+-                onDelete();
++            extraButtons,
++            onDelete && /* @__PURE__ */ React11.createElement(
++              "button",
++              {
++                className: "AreaHighlight__delete-button",
++                onClick: (e) => {
++                  e.stopPropagation();
++                  onDelete();
++                },
++                title: "Delete",
++                type: "button"
+               },
+-              title: "Delete",
+-              type: "button"
+-            },
+-            deleteIcon || /* @__PURE__ */ React11.createElement(DefaultDeleteIcon2, null)
+-          )
+-        ),
+-        isColorMenuOpen && onStyleChange && /* @__PURE__ */ React11.createElement(
+-          "div",
+-          {
+-            className: "AreaHighlight__color-menu",
+-            ref: colorMenuRef,
+-            onClick: (e) => e.stopPropagation()
+-          },
+-          colorPresets.map((c) => /* @__PURE__ */ React11.createElement(
+-            "button",
++              deleteIcon || /* @__PURE__ */ React11.createElement(DefaultDeleteIcon2, null)
++            )
++          ),
++          (isSelected || isScrolledTo) && onStyleChange && /* @__PURE__ */ React11.createElement(
++            "div",
+             {
+-              key: c,
+-              type: "button",
+-              className: "AreaHighlight__color-menu-item",
+-              onClick: () => {
+-                onStyleChange({ highlightColor: c });
+-                setIsColorMenuOpen(false);
+-              }
++              className: "AreaHighlight__color-row",
++              onClick: (e) => e.stopPropagation()
+             },
+-            /* @__PURE__ */ React11.createElement(
+-              "span",
++            colorPresets.map((c) => /* @__PURE__ */ React11.createElement(
++              "button",
+               {
+-                className: "AreaHighlight__color-menu-dot",
+-                style: { backgroundColor: c }
+-              }
+-            ),
+-            /* @__PURE__ */ React11.createElement("span", { className: "AreaHighlight__color-menu-label" }, COLOR_NAMES2[c] || c),
+-            highlightColor === c && /* @__PURE__ */ React11.createElement("span", { className: "AreaHighlight__color-menu-check" }, /* @__PURE__ */ React11.createElement(CheckIcon2, null))
+-          ))
+-        ),
+-        extraPanel
++                key: c,
++                type: "button",
++                className: "AreaHighlight__color-row-item",
++                title: COLOR_NAMES2[c] || c,
++                onClick: () => onStyleChange({ highlightColor: c })
++              },
++              /* @__PURE__ */ React11.createElement(
++                "span",
++                {
++                  className: "AreaHighlight__color-row-dot",
++                  style: { backgroundColor: c }
++                },
++                highlightColor === c && /* @__PURE__ */ React11.createElement(CheckIcon2, null)
++              )
++            ))
++          ),
++          extraPanel)
++        )
+       ),
+       configLayer
+     ),
+@@ -3188,6 +3081,7 @@ var AreaHighlight = memo(({
+         onClick: (event) => {
+           event.stopPropagation();
+           event.preventDefault();
++          if (shouldSelect && !shouldSelect()) return;
+           setIsSelected(true);
+         },
+         style: mergedStyle
+@@ -3233,6 +3127,9 @@ var FreetextHighlight = ({
+   styleIcon,
+   backgroundColorPresets = DEFAULT_BACKGROUND_PRESETS,
+   textColorPresets = DEFAULT_TEXT_PRESETS,
++  backgroundColorNames = BACKGROUND_COLOR_NAMES,
++  textColorNames,
++  fontFamilyOptions,
+   onDelete,
+   deleteIcon,
+   compact = false,
+@@ -3273,6 +3170,18 @@ var FreetextHighlight = ({
+       document.removeEventListener("keydown", handleKey);
+     };
+   }, [isSelected, isEditing]);
++  useEffect(() => {
++    if (!compact || !isExpanded) return;
++    const handlePointerDown = (e) => {
++      if (rootRef.current && !rootRef.current.contains(e.target)) {
++        setIsExpanded(false);
++        setIsStylePanelOpen(false);
++        setIsColorMenuOpen(false);
++      }
++    };
++    document.addEventListener("mousedown", handlePointerDown);
++    return () => document.removeEventListener("mousedown", handlePointerDown);
++  }, [compact, isExpanded]);
+   useEffect(() => {
+     setText(highlight.content?.text || "");
+   }, [highlight.content?.text]);
+@@ -3404,16 +3313,7 @@ var FreetextHighlight = ({
+         minHeight: isCompactCollapsed ? compactSize : 50,
+         key,
+         bounds,
+-        enableResizing: isCompactCollapsed ? false : {
+-          top: false,
+-          right: true,
+-          bottom: true,
+-          left: false,
+-          topRight: false,
+-          bottomRight: true,
+-          bottomLeft: false,
+-          topLeft: false
+-        },
++        enableResizing: false,
+         onResizeStop: (_e, _direction, ref, _delta, position) => {
+           const boundingRect = {
+             top: position.y,
+@@ -3440,17 +3340,22 @@ var FreetextHighlight = ({
+           onDoubleClick: enterEditMode
+         },
+         isCompactCollapsed ? /* @__PURE__ */ React11.createElement(
+-          "button",
+-          {
+-            className: "FreetextHighlight__compact-button",
+-            type: "button",
+-            title: text || "Open note",
+-            onClick: (event) => {
+-              event.stopPropagation();
+-              setIsExpanded(true);
+-            }
+-          },
+-          compactIcon || /* @__PURE__ */ React11.createElement(DefaultCompactIcon, null)
++          React11.Fragment,
++          null,
++          /* @__PURE__ */ React11.createElement(
++            "button",
++            {
++              className: "FreetextHighlight__compact-button",
++              type: "button",
++              "aria-label": text || "Open note",
++              onClick: (event) => {
++                event.stopPropagation();
++                setIsExpanded(true);
++              }
++            },
++            compactIcon || /* @__PURE__ */ React11.createElement(DefaultCompactIcon, null)
++          ),
++          /* @__PURE__ */ React11.createElement("div", { className: "FreetextHighlight__peek", "aria-hidden": true }, text || "New note")
+         ) : /* @__PURE__ */ React11.createElement(React11.Fragment, null, /* @__PURE__ */ React11.createElement(
+           "div",
+           {
+@@ -3559,7 +3464,7 @@ var FreetextHighlight = ({
+                 style: c !== "transparent" ? { backgroundColor: c } : void 0
+               }
+             ),
+-            /* @__PURE__ */ React11.createElement("span", { className: "FreetextHighlight__color-menu-label" }, BACKGROUND_COLOR_NAMES[c] || c),
++            /* @__PURE__ */ React11.createElement("span", { className: "FreetextHighlight__color-menu-label" }, backgroundColorNames[c] || c),
+             backgroundColor === c && /* @__PURE__ */ React11.createElement("span", { className: "FreetextHighlight__color-menu-check" }, /* @__PURE__ */ React11.createElement(CheckIcon3, null))
+           ))
+         ), isStylePanelOpen && /* @__PURE__ */ React11.createElement(
+@@ -3581,7 +3486,7 @@ var FreetextHighlight = ({
+               className: `FreetextHighlight__color-preset ${color === c ? "active" : ""}`,
+               style: { backgroundColor: c },
+               onClick: () => onStyleChange?.({ color: c }),
+-              title: c
++              title: textColorNames?.[c] || c
+             }
+           ))), /* @__PURE__ */ React11.createElement(
+             "input",
+@@ -3617,23 +3522,30 @@ var FreetextHighlight = ({
+                 onStyleChange?.({ fontFamily: e.target.value });
+               }
+             },
+-            /* @__PURE__ */ React11.createElement("option", { value: "inherit" }, "Default"),
+-            /* @__PURE__ */ React11.createElement("option", { value: "Arial, sans-serif" }, "Arial"),
+-            /* @__PURE__ */ React11.createElement("option", { value: "Georgia, serif" }, "Georgia"),
+-            /* @__PURE__ */ React11.createElement("option", { value: "'Courier New', monospace" }, "Courier"),
+-            /* @__PURE__ */ React11.createElement("option", { value: "'Times New Roman', serif" }, "Times")
++            (fontFamilyOptions || [
++              { value: "inherit", label: "Default" },
++              { value: "Arial, sans-serif", label: "Arial" },
++              { value: "Georgia, serif", label: "Georgia" },
++              { value: "'Courier New', monospace", label: "Courier" },
++              { value: "'Times New Roman', serif", label: "Times" }
++            ]).map((o) => /* @__PURE__ */ React11.createElement("option", { key: o.value, value: o.value }, o.label))
+           ))
+         ), /* @__PURE__ */ React11.createElement("div", { className: "FreetextHighlight__content" }, isEditing ? /* @__PURE__ */ React11.createElement(
+-          "textarea",
+-          {
+-            ref: textareaRef,
+-            className: "FreetextHighlight__input",
+-            value: text,
+-            onChange: (e) => setText(e.target.value),
+-            onBlur: handleTextBlur,
+-            onKeyDown: handleKeyDown,
+-            onClick: (e) => e.stopPropagation()
+-          }
++          "div",
++          { className: "FreetextHighlight__input-wrap", "data-value": text },
++          /* @__PURE__ */ React11.createElement(
++            "textarea",
++            {
++              ref: textareaRef,
++              className: "FreetextHighlight__input",
++              value: text,
++              rows: 1,
++              onChange: (e) => setText(e.target.value),
++              onBlur: handleTextBlur,
++              onKeyDown: handleKeyDown,
++              onClick: (e) => e.stopPropagation()
++            }
++          )
+         ) : /* @__PURE__ */ React11.createElement("div", { className: "FreetextHighlight__text" }, text || "New note")))
+       )
+     )
+diff --git a/node_modules/react-pdf-highlighter-plus/dist/esm/style/AreaHighlight.css b/node_modules/react-pdf-highlighter-plus/dist/esm/style/AreaHighlight.css
+index 442d863..4560d4f 100644
+--- a/node_modules/react-pdf-highlighter-plus/dist/esm/style/AreaHighlight.css
++++ b/node_modules/react-pdf-highlighter-plus/dist/esm/style/AreaHighlight.css
+@@ -28,16 +28,15 @@
+   z-index: 10;
+ }
+ 
+-/* Toolbar - dark ink pill floating ABOVE the highlight (never covers it).
+-   Shown on hover or while the highlight is selected. */
+-.AreaHighlight__toolbar {
++/* Toolbar group - positions the toolbar pill *and* the color row (when
++   open) as one stacked unit floating ABOVE the highlight, so neither ever
++   covers the highlighted area itself — only the 6px gap separates them.
++   Shown while the highlight is selected or scrolled-to. */
++.AreaHighlight__toolbar-group {
+   display: flex;
+-  align-items: center;
+-  gap: 2px;
+-  padding: 4px 6px;
+-  background: var(--rphp-toolbar-bg, #1c1b18);
+-  border-radius: var(--rphp-radius, 9px);
+-  box-shadow: var(--rphp-shadow-lg, 0 8px 24px -6px rgba(28, 27, 24, 0.22));
++  flex-direction: column;
++  align-items: flex-start;
++  gap: 6px;
+   position: absolute;
+   bottom: calc(100% + 6px);
+   left: 0;
+@@ -45,36 +44,31 @@
+   pointer-events: none;
+   transition: opacity 0.15s ease, transform 0.15s ease;
+   transform: translateY(2px);
+-  white-space: nowrap;
+ }
+ 
+-/* Hover bridge across the 6px gap between toolbar and highlight */
+-.AreaHighlight__toolbar::after {
+-  content: "";
+-  position: absolute;
+-  top: 100%;
+-  left: 0;
+-  right: 0;
+-  height: 10px;
+-}
+-
+-.AreaHighlight__toolbar--visible {
++.AreaHighlight__toolbar-group--visible {
+   opacity: 1;
+   pointer-events: auto;
+   transform: translateY(0);
+ }
+ 
+ /* Flipped below the highlight — used when there's no room above (e.g. the
+-   highlight sits at the very top of the page) so the toolbar doesn't float
++   highlight sits at the very top of the page) so the group doesn't float
+    up over whatever page content is above it. */
+-.AreaHighlight__toolbar--below {
++.AreaHighlight__toolbar-group--below {
+   bottom: auto;
+   top: calc(100% + 6px);
+ }
+ 
+-.AreaHighlight__toolbar--below::after {
+-  top: auto;
+-  bottom: 100%;
++.AreaHighlight__toolbar {
++  display: flex;
++  align-items: center;
++  gap: 2px;
++  padding: 4px 6px;
++  background: var(--rphp-toolbar-bg, #1c1b18);
++  border-radius: var(--rphp-radius, 9px);
++  box-shadow: var(--rphp-shadow-lg, 0 8px 24px -6px rgba(28, 27, 24, 0.22));
++  white-space: nowrap;
+ }
+ 
+ /* Color dropdown trigger: current-color swatch + chevron */
+@@ -161,7 +155,6 @@
+ 
+ /* Comment panel - light surface card (Verso popover), same slot as the style panel */
+ .AreaHighlight__comment-panel {
+-  margin-top: 6px;
+   width: 260px;
+   background: var(--rphp-surface, #ffffff);
+   border: 1px solid var(--rphp-border, #e6e2da);
+diff --git a/node_modules/react-pdf-highlighter-plus/dist/esm/style/TextHighlight.css b/node_modules/react-pdf-highlighter-plus/dist/esm/style/TextHighlight.css
+index fff67b8..4dc2884 100644
+--- a/node_modules/react-pdf-highlighter-plus/dist/esm/style/TextHighlight.css
++++ b/node_modules/react-pdf-highlighter-plus/dist/esm/style/TextHighlight.css
+@@ -32,16 +32,18 @@
+   z-index: 10;
+ }
+ 
+-/* Toolbar - dark ink pill floating ABOVE the highlight (never covers it).
+-   Shown on hover or while the highlight is selected. */
+-.TextHighlight__toolbar {
++/* Toolbar group - positions the toolbar pill *and* the style/color row
++   (when open) as one stacked unit floating ABOVE the highlight, so neither
++   ever covers the highlighted text itself — only the 6px gap separates
++   them. Shown while the highlight is selected or scrolled-to. The toolbar
++   pill and color row below are plain flow children of this group, not
++   independently positioned, so the whole stack moves and sizes together
++   regardless of whether the color row is present. */
++.TextHighlight__toolbar-group {
+   display: flex;
+-  align-items: center;
+-  gap: 2px;
+-  padding: 4px 6px;
+-  background: var(--rphp-toolbar-bg, #1c1b18);
+-  border-radius: var(--rphp-radius, 9px);
+-  box-shadow: var(--rphp-shadow-lg, 0 8px 24px -6px rgba(28, 27, 24, 0.22));
++  flex-direction: column;
++  align-items: flex-start;
++  gap: 6px;
+   position: absolute;
+   bottom: calc(100% + 6px);
+   left: 0;
+@@ -49,36 +51,31 @@
+   pointer-events: none;
+   transition: opacity 0.15s ease, transform 0.15s ease;
+   transform: translateY(2px);
+-  white-space: nowrap;
+ }
+ 
+-/* Hover bridge across the 6px gap between toolbar and highlight */
+-.TextHighlight__toolbar::after {
+-  content: "";
+-  position: absolute;
+-  top: 100%;
+-  left: 0;
+-  right: 0;
+-  height: 10px;
+-}
+-
+-.TextHighlight__toolbar--visible {
++.TextHighlight__toolbar-group--visible {
+   opacity: 1;
+   pointer-events: auto;
+   transform: translateY(0);
+ }
+ 
+ /* Flipped below the highlight — used when there's no room above (e.g. the
+-   highlight sits at the very top of the page) so the toolbar doesn't float
++   highlight sits at the very top of the page) so the group doesn't float
+    up over whatever page content is above it. */
+-.TextHighlight__toolbar--below {
++.TextHighlight__toolbar-group--below {
+   bottom: auto;
+   top: calc(100% + 6px);
+ }
+ 
+-.TextHighlight__toolbar--below::after {
+-  top: auto;
+-  bottom: 100%;
++.TextHighlight__toolbar {
++  display: flex;
++  align-items: center;
++  gap: 2px;
++  padding: 4px 6px;
++  background: var(--rphp-toolbar-bg, #1c1b18);
++  border-radius: var(--rphp-radius, 9px);
++  box-shadow: var(--rphp-shadow-lg, 0 8px 24px -6px rgba(28, 27, 24, 0.22));
++  white-space: nowrap;
+ }
+ 
+ /* Color dropdown trigger: current-color swatch + chevron */
+@@ -163,7 +160,6 @@
+ 
+ /* Comment panel - light surface card (Verso popover), same slot as the style panel */
+ .TextHighlight__comment-panel {
+-  margin-top: 6px;
+   width: 260px;
+   background: var(--rphp-surface, #ffffff);
+   border: 1px solid var(--rphp-border, #e6e2da);

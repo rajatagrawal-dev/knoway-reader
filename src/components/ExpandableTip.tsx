@@ -1,14 +1,24 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, Highlighter, Palette, Strikethrough, Underline } from "lucide-react";
 import type { GhostHighlight } from "react-pdf-highlighter-plus";
 import { usePdfHighlighterContext } from "react-pdf-highlighter-plus";
 import type { CommentedHighlight } from "../types";
 import { useNoteControl } from "./NoteControl";
-import DiveControl from "../deepdive/DiveControl";
-import { HIGHLIGHT_COLOR_NAMES, HIGHLIGHT_COLOR_PRESETS } from "../highlightColors";
+import HighlightToolbar from "./HighlightToolbar";
+import GlossaryCard from "../glossary/GlossaryCard";
+import type { GlossaryStore } from "../glossary/store";
+import { isGlossaryCandidate, MAX_TERM_WORDS } from "../glossary/textIndex";
 
 type HighlightStyleOverride = Pick<CommentedHighlight, "highlightColor" | "highlightStyle">;
-type Menu = "color" | "style" | null;
+type HighlightStyle = NonNullable<CommentedHighlight["highlightStyle"]>;
+
+export interface GlossaryTipBindings {
+  store: GlossaryStore;
+  // Adds the term (or finds it already there) and starts its lookup;
+  // returns the entry's id, or null if the selection isn't a usable term.
+  onAdd: (selection: string, pageNumber: number) => string | null;
+  onOpenInGlossary: (entryId: string) => void;
+  onRetry: (entryId: string) => void;
+}
 
 interface ExpandableTipProps {
   addHighlight: (
@@ -18,16 +28,19 @@ interface ExpandableTipProps {
   ) => void;
   onDiveDeeper: (highlight: GhostHighlight) => void;
   onPin: (selectionText: string, pageNumber: number) => void;
+  glossary: GlossaryTipBindings;
 }
 
 export default function ExpandableTip({
   addHighlight,
   onDiveDeeper,
   onPin,
+  glossary,
 }: ExpandableTipProps) {
-  const [menu, setMenu] = useState<Menu>(null);
-  const [copied, setCopied] = useState(false);
-  const [pinned, setPinned] = useState(false);
+  const [pendingStyle, setPendingStyle] = useState<HighlightStyle>("highlight");
+  // Set once "Glossary" is clicked: the tip then shows that entry's
+  // definition card in place of the toolbar.
+  const [glossaryEntryId, setGlossaryEntryId] = useState<string | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
 
   const { getCurrentSelection, setTip, updateTipPosition, removeGhostHighlight } =
@@ -55,7 +68,8 @@ export default function ExpandableTip({
   const commentControls = useNoteControl({
     comment: undefined,
     onCommit: (comment) => {
-      if (comment.trim()) finalize(undefined, comment.trim());
+      if (comment.trim())
+        finalize(hasTextSelection ? { highlightStyle: pendingStyle } : undefined, comment.trim());
     },
     classPrefix: hasTextSelection ? "TextHighlight" : "AreaHighlight",
     containerRef: tipRef,
@@ -63,15 +77,7 @@ export default function ExpandableTip({
 
   useLayoutEffect(() => {
     updateTipPosition?.();
-  }, [menu, commentControls.showComment, updateTipPosition]);
-
-  const handleCopy = async () => {
-    const text = getCurrentSelection()?.content.text;
-    if (!text) return;
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  };
+  }, [commentControls.showComment, updateTipPosition]);
 
   const handleDive = () => {
     const selection = getCurrentSelection();
@@ -86,113 +92,58 @@ export default function ExpandableTip({
     const text = selection?.content.text;
     if (!text) return;
     onPin(text, selection.position.boundingRect.pageNumber);
-    setPinned(true);
   };
 
-  const toggleMenu = (next: Exclude<Menu, null>) => {
-    setMenu((current) => (current === next ? null : next));
+  const handleAddToGlossary = () => {
+    const selection = getCurrentSelection();
+    const text = selection?.content.text;
+    if (!text) return;
+    const entryId = glossary.onAdd(text, selection.position.boundingRect.pageNumber);
+    if (entryId) setGlossaryEntryId(entryId);
   };
+
+  if (glossaryEntryId) {
+    return (
+      <div className="expandable-tip" ref={tipRef}>
+        <GlossaryCard
+          store={glossary.store}
+          entryId={glossaryEntryId}
+          onOpenInGlossary={(entryId) => {
+            glossary.onOpenInGlossary(entryId);
+            setTip(null);
+          }}
+          onRetry={glossary.onRetry}
+          onLayoutChange={updateTipPosition}
+        />
+      </div>
+    );
+  }
+
+  const selectionText = currentSelection?.content.text ?? "";
 
   return (
     <div className="expandable-tip" ref={tipRef}>
-      <div className="expandable-tip__toolbar">
-        <button
-          type="button"
-          className="TextHighlight__color-trigger"
-          aria-label="Highlight color"
-          aria-expanded={menu === "color"}
-          title="Highlight color"
-          onClick={() => toggleMenu("color")}
-        >
-          <span
-            className="TextHighlight__color-trigger-dot"
-            style={{ backgroundColor: HIGHLIGHT_COLOR_PRESETS[0] }}
-          />
-          <ChevronDown width={12} height={12} strokeWidth={2.5} />
-        </button>
-        <div className="TextHighlight__toolbar-divider" />
-        {hasTextSelection ? (
-          <button
-            type="button"
-            className="TextHighlight__style-button"
-            title="Change style"
-            onClick={() => toggleMenu("style")}
-          >
-            <Palette width={14} height={14} />
-          </button>
-        ) : null}
-        {hasTextSelection ? (
-          <button
-            type="button"
-            className="TextHighlight__copy-button"
-            title={copied ? "Copied" : "Copy text"}
-            onClick={handleCopy}
-          >
-            {copied ? <Check width={14} height={14} strokeWidth={2.5} /> : <Copy width={14} height={14} />}
-          </button>
-        ) : null}
-        {commentControls.button}
-        <DiveControl onStart={handleDive} />
-        {hasTextSelection ? (
-          <button type="button" className="dive-badge" onClick={handlePin} disabled={pinned}>
-            {pinned ? "Pinned" : "Pin"}
-          </button>
-        ) : null}
-      </div>
-
-      {menu === "color" ? (
-        <div className="TextHighlight__color-menu" onClick={(event) => event.stopPropagation()}>
-          {HIGHLIGHT_COLOR_PRESETS.map((presetColor) => (
-            <button
-              key={presetColor}
-              type="button"
-              className="TextHighlight__color-menu-item"
-              onClick={() => finalize({ highlightColor: presetColor }, "")}
-            >
-              <span className="TextHighlight__color-menu-dot" style={{ backgroundColor: presetColor }} />
-              <span className="TextHighlight__color-menu-label">
-                {HIGHLIGHT_COLOR_NAMES[presetColor] || presetColor}
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {menu === "style" ? (
-        <div className="TextHighlight__style-panel" onClick={(event) => event.stopPropagation()}>
-          <div className="TextHighlight__style-row">
-            <label>Style</label>
-            <div className="TextHighlight__style-buttons">
-              <button
-                type="button"
-                className="TextHighlight__style-type-button"
-                title="Highlight"
-                onClick={() => finalize({ highlightStyle: "highlight" }, "")}
-              >
-                <Highlighter width={16} height={16} />
-              </button>
-              <button
-                type="button"
-                className="TextHighlight__style-type-button"
-                title="Underline"
-                onClick={() => finalize({ highlightStyle: "underline" }, "")}
-              >
-                <Underline width={16} height={16} />
-              </button>
-              <button
-                type="button"
-                className="TextHighlight__style-type-button"
-                title="Strikethrough"
-                onClick={() => finalize({ highlightStyle: "strikethrough" }, "")}
-              >
-                <Strikethrough width={16} height={16} />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {commentControls.panel}
+      <HighlightToolbar
+        classPrefix={hasTextSelection ? "TextHighlight" : "AreaHighlight"}
+        copyText={currentSelection?.content.text || undefined}
+        note={commentControls}
+        onStartDive={handleDive}
+        onPin={hasTextSelection ? handlePin : undefined}
+        onAddToGlossary={hasTextSelection ? handleAddToGlossary : undefined}
+        glossaryDisabledReason={
+          isGlossaryCandidate(selectionText) ? undefined : `Select a single term (up to ${MAX_TERM_WORDS} words)`
+        }
+        activeStyle={pendingStyle}
+        onStyleChange={hasTextSelection ? setPendingStyle : undefined}
+        onColorChange={(presetColor) =>
+          finalize(
+            hasTextSelection
+              ? { highlightColor: presetColor, highlightStyle: pendingStyle }
+              : { highlightColor: presetColor },
+            "",
+          )
+        }
+      />
     </div>
   );
 }

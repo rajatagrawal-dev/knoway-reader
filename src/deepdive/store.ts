@@ -1,6 +1,6 @@
-import type { DiveHighlight, DivePanel, Pin } from "./types";
+import type { DiveHighlight, DivePanel, GeneralNote, Pin } from "./types";
 
-function keyForFile(prefix: string, file: File): string {
+export function keyForFile(prefix: string, file: File): string {
   return `${prefix}:${file.name}:${file.size}:${file.lastModified}`;
 }
 
@@ -14,6 +14,10 @@ export function pinsKeyForFile(file: File): string {
 
 export function diveHighlightsKeyForFile(file: File): string {
   return keyForFile("pdf-dive-highlights", file);
+}
+
+export function generalNotesKeyForFile(file: File): string {
+  return keyForFile("pdf-general-notes", file);
 }
 
 export function loadDivePanels(key: string): DivePanel[] {
@@ -63,4 +67,18 @@ export function loadDiveHighlights(key: string): DiveHighlight[] {
 
 export function saveDiveHighlights(key: string, highlights: DiveHighlight[]) {
   localStorage.setItem(key, JSON.stringify(highlights));
+}
+
+export function loadGeneralNotes(key: string): GeneralNote[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    return JSON.parse(raw) as GeneralNote[];
+  } catch {
+    return [];
+  }
+}
+
+export function saveGeneralNotes(key: string, notes: GeneralNote[]) {
+  localStorage.setItem(key, JSON.stringify(notes));
 }

@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { DiveHighlight, DivePanel } from "./types";
+import type { DiveHighlight, DiveHighlightPlacement, DivePanel } from "./types";
 import { ancestorChain, paneWindow, panelById } from "./tree";
 import DivePanelPane from "./DivePanelPane";
 
@@ -12,12 +12,12 @@ export interface DeepDiveViewProps {
   onFocusChange: (id: string | null) => void;
   rootSlotRef: RefObject<HTMLDivElement>;
   onSendMessage: (panelId: string, content: string, onChunk?: (chunk: string) => void) => Promise<void>;
-  onNestedDive: (request: { parentId: string; selection: string; contextText: string }) => void;
+  onNestedDive: (request: { parentId: string; selection: string; contextText: string } & DiveHighlightPlacement) => void;
   onAddHighlight: (
     panelId: string,
     text: string,
     comment: string,
-    style?: Pick<DiveHighlight, "highlightColor" | "highlightStyle">,
+    style?: Pick<DiveHighlight, "highlightColor" | "highlightStyle" | "divePanelId"> & DiveHighlightPlacement,
   ) => void;
   onEditHighlight: (
     highlightId: string,
@@ -74,6 +74,7 @@ export default function DeepDiveView({
                 allPanels={panels}
                 diveHighlights={diveHighlights}
                 scrolledToDiveHighlightId={scrolledToDiveHighlightId}
+                focusedPanelId={focusId}
                 onOpenDive={onFocusChange}
                 onSendMessage={onSendMessage}
                 onNestedDive={onNestedDive}

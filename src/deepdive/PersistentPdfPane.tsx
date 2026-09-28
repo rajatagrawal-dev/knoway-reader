@@ -11,7 +11,25 @@ export type DockTarget = "workspace" | "deep-dive-root" | "offscreen";
 // scroll — which depends on every earlier page's real, measured height —
 // has necessarily landed. Re-issuing the same command over this window
 // gives it time to finish measuring and self-correct on a later call.
-const CORRECTION_DELAYS_MS = [0, 300, 800, 1500, 3000, 5000];
+//
+// The very first correction is handled separately (synchronously, then
+// chased across a couple of animation frames — see EARLY_CORRECTION_FRAMES)
+// so the reparented pane never gets painted at the wrong position even for
+// one frame; these later ticks are only for the slower settling that
+// happens once pdf.js finishes measuring pages it hasn't rendered yet.
+const CORRECTION_DELAYS_MS = [300, 800, 1500, 3000, 5000];
+
+// pdf.js reacts to the container swap with its own ResizeObserver, which can
+// rescale/re-settle its idea of the current page within the same or next
+// frame — after our synchronous correction has already run. Chasing it for
+// a couple of animation frames (still before the browser paints) makes sure
+// that async rescale doesn't get the last word and flash the wrong spot.
+const EARLY_CORRECTION_FRAMES = 3;
+
+// Once the user actually scrolls, that's their intent now, not ours —
+// keep correcting past that point and every later tick fights their input,
+// which is exactly what reads as the view "resetting" under them.
+const USER_INTERACTION_EVENTS = ["wheel", "touchstart", "pointerdown"] as const;
 
 interface ScrollIntent {
   pageNumber: number;
@@ -112,19 +130,49 @@ export default function PersistentPdfPane({
 
       target.appendChild(host);
 
-      if (intent) {
-        CORRECTION_DELAYS_MS.forEach((delay) => {
-          window.setTimeout(() => {
-            try {
-              highlighterUtilsRef.current?.getViewer()?.scrollPageIntoView({ pageNumber: intent.pageNumber });
-              const el = host.querySelector<HTMLElement>(".PdfHighlighter");
-              if (el) applyScrollIntent(el, intent);
-            } catch {
-              // best-effort correction; nothing to do if it throws
-            }
-          }, delay);
-        });
-      }
+      if (!intent) return;
+
+      let stopped = false;
+      const applyCorrection = () => {
+        if (stopped) return;
+        try {
+          highlighterUtilsRef.current?.getViewer()?.scrollPageIntoView({ pageNumber: intent.pageNumber });
+          const el = host.querySelector<HTMLElement>(".PdfHighlighter");
+          if (el) applyScrollIntent(el, intent);
+        } catch {
+          // best-effort correction; nothing to do if it throws
+        }
+      };
+
+      // Run before this commit paints, so the reparented pane is never
+      // shown even for one frame at whatever spot pdf.js's own resize
+      // handling landed on.
+      applyCorrection();
+
+      const rafIds: number[] = [];
+      let framesLeft = EARLY_CORRECTION_FRAMES;
+      const chaseFrame = () => {
+        applyCorrection();
+        framesLeft -= 1;
+        if (framesLeft > 0) rafIds.push(requestAnimationFrame(chaseFrame));
+      };
+      rafIds.push(requestAnimationFrame(chaseFrame));
+
+      const timeoutIds = CORRECTION_DELAYS_MS.map((delay) => window.setTimeout(applyCorrection, delay));
+
+      const stopCorrecting = () => {
+        stopped = true;
+        rafIds.forEach(cancelAnimationFrame);
+        timeoutIds.forEach(window.clearTimeout);
+      };
+      USER_INTERACTION_EVENTS.forEach((evt) =>
+        scrollEl?.addEventListener(evt, stopCorrecting, { passive: true, once: true }),
+      );
+
+      return () => {
+        stopCorrecting();
+        USER_INTERACTION_EVENTS.forEach((evt) => scrollEl?.removeEventListener(evt, stopCorrecting));
+      };
     }
   }, [dockTarget, workspaceSlotRef, deepDiveRootSlotRef, highlighterUtilsRef]);
 

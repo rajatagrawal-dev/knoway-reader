@@ -81,6 +81,32 @@ export function useNoteControl({ comment, onCommit, classPrefix, containerRef }:
         rows={2}
         placeholder="Add a note…"
       />
+      <div className={`${classPrefix}__comment-actions`}>
+        <button
+          type="button"
+          className={`${classPrefix}__comment-cancel`}
+          // Prevents the textarea's onBlur from firing on click, which would
+          // otherwise commit the draft before this button's own onClick runs.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setDraft(comment || "");
+            close();
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={`${classPrefix}__comment-save`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            commit();
+            close();
+          }}
+        >
+          Save
+        </button>
+      </div>
     </div>
   ) : null;
 

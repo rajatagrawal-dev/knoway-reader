@@ -4,18 +4,32 @@ export interface DiveMessage {
   image?: { mediaType: string; data: string };
 }
 
-// Reads the backend's SSE stream (see server/app.js's /api/dive/stream),
+// In the browser (and Tauri's dev webview, which loads the Vite dev
+// server) relative "/api/..." requests work as-is via Vite's proxy. A
+// packaged Tauri build loads the frontend from its own asset scheme
+// (tauri://localhost, or http://tauri.localhost on Windows) instead, so
+// "/api/..." has to be pointed at the bundled server (see src-tauri/src/lib.rs)
+// explicitly.
+const API_BASE =
+  typeof window !== "undefined" &&
+  (window.location.protocol === "tauri:" || window.location.hostname === "tauri.localhost")
+    ? "http://localhost:4300"
+    : "";
+
+// Reads one of the backend's SSE streams (see server/app.js's streamSse),
 // forwarding each text delta to onText and resolving with the final full
 // reply text once the "done" frame arrives.
-export async function streamDiveReply(params: {
-  system: string;
-  messages: DiveMessage[];
-  onText: (chunk: string) => void;
-}): Promise<string> {
-  const res = await fetch("/api/dive/stream", {
+async function postSse(
+  path: string,
+  body: unknown,
+  onText: (chunk: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ system: params.system, messages: params.messages }),
+    body: JSON.stringify(body),
+    signal,
   });
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}));
@@ -43,7 +57,7 @@ export async function streamDiveReply(params: {
         full = data.text ?? full;
       } else if (typeof data.text === "string") {
         full += data.text;
-        params.onText(data.text);
+        onText(data.text);
       }
     }
   }
@@ -51,8 +65,25 @@ export async function streamDiveReply(params: {
   return full;
 }
 
+export function streamDiveReply(params: {
+  system: string;
+  messages: DiveMessage[];
+  onText: (chunk: string) => void;
+}): Promise<string> {
+  return postSse("/api/dive/stream", { system: params.system, messages: params.messages }, params.onText);
+}
+
+export function streamGlossaryDefinition(params: {
+  system: string;
+  prompt: string;
+  onText: (chunk: string) => void;
+  signal?: AbortSignal;
+}): Promise<string> {
+  return postSse("/api/glossary/stream", { system: params.system, prompt: params.prompt }, params.onText, params.signal);
+}
+
 export async function quickMeaning(params: { system: string; prompt: string }): Promise<string> {
-  const res = await fetch("/api/dive/quick", {
+  const res = await fetch(`${API_BASE}/api/dive/quick`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),

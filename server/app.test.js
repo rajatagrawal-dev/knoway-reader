@@ -11,6 +11,11 @@ const fakeModels = {
   async quickAnswer() {
     return "Quick answer.";
   },
+  async streamGlossary({ system, messages, onText }) {
+    onText(`${system}|`);
+    onText(messages[0].content);
+    return `${system}|${messages[0].content}`;
+  },
 };
 
 function parseSSE(text) {
@@ -113,6 +118,32 @@ test("POST /api/dive/quick returns the answer", async () => {
   });
 });
 
+test("allows the packaged app's tauri:// origin and answers its preflight", async () => {
+  await withServer(fakeModels, async (base) => {
+    const preflight = await fetch(`${base}/api/dive/quick`, {
+      method: "OPTIONS",
+      headers: { Origin: "tauri://localhost", "Access-Control-Request-Method": "POST" },
+    });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get("access-control-allow-origin"), "tauri://localhost");
+
+    const res = await fetch(`${base}/api/dive/quick`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "tauri://localhost" },
+      body: JSON.stringify({ system: "S", prompt: "x" }),
+    });
+    assert.equal(res.headers.get("access-control-allow-origin"), "tauri://localhost");
+    assert.equal(res.status, 200);
+  });
+});
+
+test("does not set CORS headers for an unrecognized origin", async () => {
+  await withServer(fakeModels, async (base) => {
+    const res = await fetch(`${base}/api/health`, { headers: { Origin: "https://evil.example" } });
+    assert.equal(res.headers.get("access-control-allow-origin"), null);
+  });
+});
+
 test("POST /api/dive/quick returns 502 when the model rejects", async () => {
   const failingModels = {
     async streamDiveReply() { throw new Error("unused"); },
@@ -126,5 +157,46 @@ test("POST /api/dive/quick returns 502 when the model rejects", async () => {
     });
     assert.equal(res.status, 502);
     assert.deepEqual(await res.json(), { error: "boom" });
+  });
+});
+
+test("POST /api/glossary/stream requires system and prompt", async () => {
+  await withServer(fakeModels, async (base) => {
+    const res = await fetch(`${base}/api/glossary/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system: "S" }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test("POST /api/glossary/stream streams the reply to the prompt as a single user turn", async () => {
+  await withServer(fakeModels, async (base) => {
+    const res = await fetch(`${base}/api/glossary/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system: "S", prompt: "qubit" }),
+    });
+    assert.equal(res.status, 200);
+    const frames = parseSSE(await res.text());
+    assert.deepEqual(frames, [{ text: "S|" }, { text: "qubit" }, { done: true, text: "S|qubit" }]);
+  });
+});
+
+test("POST /api/glossary/stream sends an error frame when the model rejects", async () => {
+  const failingModels = {
+    ...fakeModels,
+    async streamGlossary() {
+      throw new Error("MUSE_SPARK_API_KEY is not set.");
+    },
+  };
+  await withServer(failingModels, async (base) => {
+    const res = await fetch(`${base}/api/glossary/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system: "S", prompt: "x" }),
+    });
+    assert.deepEqual(parseSSE(await res.text()), [{ error: "MUSE_SPARK_API_KEY is not set." }]);
   });
 });

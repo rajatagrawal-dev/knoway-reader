@@ -211,6 +211,55 @@ export function promoteSubstantialInlineMath(markdown: string): string {
   });
 }
 
+// remark-math only treats $$...$$ as *display* math when the delimiters sit
+// on their own lines (a "fenced" block, like a code fence). A same-line
+// "$$E = mc^2$$" — which is what the model, and promoteInlineEquations
+// above, almost always produce — parses as inline math instead: rendered in
+// KaTeX's cramped text style (tiny fractions, squashed matrices) and run
+// straight into the surrounding sentence whenever the model didn't leave a
+// blank line around it. This rewrites every $$...$$ span that isn't already
+// fenced into the fenced form, so every block equation really is a
+// centered display equation. Continuation indentation of the line it sat
+// on (list item content) is carried onto the fence so it stays inside that
+// list item instead of ending the list. Trailing sentence punctuation right
+// after the closing $$ moves inside the equation, as in typeset math,
+// rather than being stranded as its own one-character paragraph.
+const CODE_FENCE_BLOCK = /(^|\n)(```|~~~)[\s\S]*?\n\2[^\n]*(?=\n|$)/g;
+const DISPLAY_SPAN = /\$\$([\s\S]+?)\$\$([.,;:]?)[ \t]*/g;
+
+function continuationIndent(line: string): string {
+  const match = line.match(/^(\s*)((?:[-*+]|\d+[.)])\s+)?/);
+  if (!match) return "";
+  return match[1] + " ".repeat(match[2]?.length ?? 0);
+}
+
+function fenceDisplayMathInSegment(text: string): string {
+  return text
+    .replace(DISPLAY_SPAN, (match, inner: string, trail: string, offset: number) => {
+      // Already fenced: "$$" followed by a newline — leave as the model wrote it.
+      if (/^[ \t]*\n/.test(inner)) return match;
+      const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+      const linePrefix = text.slice(lineStart, offset);
+      // Splitting a table row across lines would break the table.
+      if (linePrefix.trimStart().startsWith("|")) return match;
+      const indent = continuationIndent(linePrefix);
+      const body = inner.trim().replace(/\n\s*/g, " ");
+      return `\n\n${indent}$$\n${indent}${body}${trail}\n${indent}$$\n\n${indent}`;
+    })
+    .replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, "\n\n");
+}
+
+export function fenceDisplayMath(markdown: string): string {
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const block of markdown.matchAll(CODE_FENCE_BLOCK)) {
+    parts.push(fenceDisplayMathInSegment(markdown.slice(cursor, block.index)), block[0]);
+    cursor = block.index + block[0].length;
+  }
+  parts.push(fenceDisplayMathInSegment(markdown.slice(cursor)));
+  return parts.join("").trim();
+}
+
 // A single stray/mismatched $ (e.g. the model drops one character from a
 // closing $$, or uses $ as a literal currency sign) makes remark-math hunt
 // for the next available delimiter to pair it with — however far away that
@@ -233,7 +282,10 @@ function hasBalancedDollarDelimiters(markdown: string): boolean {
   return doubleCount % 2 === 0 && singleCount % 2 === 0;
 }
 
-export function normalizeMathNotation(markdown: string): string {
+// `promote: false` keeps everything on the line it was written on — for
+// the reader's own short questions, where turning a mentioned "|0⟩" into a
+// centered display equation would blow a one-line bubble up into a block.
+export function normalizeMathNotation(markdown: string, { promote = true }: { promote?: boolean } = {}): string {
   // Fix literal "√" first — it never touches a "$", so it's safe to run
   // before the balance check and applies equally to already-$-wrapped math
   // (which the promotion passes below leave untouched) and bare prose.
@@ -250,6 +302,7 @@ export function normalizeMathNotation(markdown: string): string {
   if (!hasBalancedDollarDelimiters(markdown)) {
     return markdown.replace(/\$/g, "\\$");
   }
+  if (!promote) return autoWrapCaretExponents(markdown);
   const upgraded = promoteSubstantialInlineMath(markdown);
   const normalized = autoWrapCaretExponents(promoteInlineEquations(upgraded));
   // Defense in depth: the passes above are expected to preserve balance on
@@ -259,5 +312,5 @@ export function normalizeMathNotation(markdown: string): string {
   if (!hasBalancedDollarDelimiters(normalized)) {
     return markdown.replace(/\$/g, "\\$");
   }
-  return normalized;
+  return fenceDisplayMath(normalized);
 }
