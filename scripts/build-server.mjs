@@ -1,7 +1,6 @@
 // Bundles server/index.js (Express app + its dependencies, e.g. express)
 // into a single ESM file the Tauri desktop build spawns via `node` at
-// runtime. Node builtins (node:child_process, node:os, ...) and the
-// `claude` CLI it shells out to stay external/unbundled.
+// runtime. Node builtins (node:fs, node:path, ...) stay external/unbundled.
 import { build } from "esbuild";
 import { copyFileSync, existsSync } from "node:fs";
 
@@ -22,8 +21,8 @@ await build({
 // lookup (see server/index.js) would miss this project's .env entirely once
 // packaged. Copy it alongside server.mjs so the same relative lookup keeps
 // working, and Tauri (via the "resources/*" glob in tauri.conf.json) bundles
-// it into the app. Skipped when absent — .env is optional (CLI-only setups
-// need none of it).
+// it into the app. Skipped when absent — the server then starts, but each
+// role fails until its provider's API key is set.
 if (existsSync(".env")) {
   copyFileSync(".env", "src-tauri/resources/.env");
 }

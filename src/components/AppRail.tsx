@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { usePopover } from "./usePopover";
 import {
   BookA,
   Check,
   Columns2,
+  FlaskConical,
   Highlighter,
+  Library,
   MessageSquare,
+  MessageSquareText,
   Moon,
   Rows3,
   Search,
@@ -20,6 +24,13 @@ import type { SidebarPanel } from "./Sidebar";
 import { STYLE_BUTTONS, type HighlightStyle } from "../highlightStyles";
 import { HIGHLIGHT_COLOR_NAMES, HIGHLIGHT_COLOR_PRESETS } from "../highlightColors";
 import type { Theme } from "../theme";
+import {
+  DEFAULT_EXPERIMENTS,
+  EXPERIMENT_GROUPS,
+  setExperiments,
+  useExperiments,
+} from "../deepdive/experiments";
+import { DEV_MODE } from "../devMode";
 
 // What a drag or click on the PDF does. Select and Highlight stay on until
 // another tool is picked; Area and Sticky note are one-shot — they fall back
@@ -58,38 +69,8 @@ const PANEL_ITEMS: { id: SidebarPanel; label: string; icon: ReactNode }[] = [
   { id: "annotations", label: "Annotations", icon: <AnnotationsIcon /> },
   { id: "glossary", label: "Glossary", icon: <BookA {...ICON_PROPS} /> },
   { id: "search", label: "Search (⌘F)", icon: <Search {...ICON_PROPS} /> },
+  { id: "ask", label: "Ask (⌘J)", icon: <MessageSquareText {...ICON_PROPS} /> },
 ];
-
-// A rail button's floating menu: closes on a click outside it or on Escape.
-// Escape is caught in the capture phase and stopped there, so closing the
-// menu doesn't also reach App's own Escape handling (which would drop the
-// current tool back to Select).
-function usePopover() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleMouseDown = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      // The zoom input handles its own Escape (cancel the edit, keep the menu).
-      if (event.target instanceof HTMLInputElement && ref.current?.contains(event.target)) return;
-      event.stopPropagation();
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [open]);
-
-  return { open, setOpen, ref };
-}
 
 export interface ViewSettings {
   zoomLabel: string;
@@ -113,6 +94,7 @@ export interface ViewSettings {
 }
 
 interface AppRailProps {
+  onHome: () => void; // back to the library
   // The panel shown in the sidebar, or null (none open, or in Deep Dive).
   activePanel: SidebarPanel | null;
   onSelectPanel: (panel: SidebarPanel) => void;
@@ -125,6 +107,7 @@ interface AppRailProps {
 }
 
 export default function AppRail({
+  onHome,
   activePanel,
   onSelectPanel,
   tool,
@@ -135,6 +118,10 @@ export default function AppRail({
 }: AppRailProps) {
   return (
     <nav className="app-rail" aria-label="Reader controls">
+      <button type="button" className="app-rail-button" onClick={onHome} title="Library" aria-label="Library">
+        <Library {...ICON_PROPS} />
+      </button>
+      <div className="app-rail-divider" role="separator" />
       {PANEL_ITEMS.map(({ id, label, icon }) => (
         <button
           key={id}
@@ -183,6 +170,7 @@ export default function AppRail({
 
       <div className="app-rail-spacer" />
 
+      {DEV_MODE ? <ExperimentsMenu /> : null}
       <ViewMenu view={view} />
     </nav>
   );
@@ -421,5 +409,61 @@ function SwitchRow({
       <span className="view-menu-switch-label">{label}</span>
       <span className={`view-menu-switch${checked ? " on" : ""}`} aria-hidden="true" />
     </button>
+  );
+}
+
+// Deep Dive experiments (deepdive/experiments.ts): each off by default, so
+// the standard dive is what you get until one is switched on here.
+function ExperimentsMenu() {
+  const popover = usePopover();
+  const experiments = useExperiments();
+  const onCount = Object.values(experiments).filter(Boolean).length;
+  const label = `Deep Dive experiments${onCount ? ` (${onCount} on)` : ""}`;
+
+  return (
+    <div className="app-rail-anchor" ref={popover.ref}>
+      <button
+        type="button"
+        className={`app-rail-button${popover.open ? " active" : ""}`}
+        onClick={() => popover.setOpen((open) => !open)}
+        title={label}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={popover.open}
+      >
+        <FlaskConical {...ICON_PROPS} />
+        {onCount ? <span className="app-rail-badge" aria-hidden="true">{onCount}</span> : null}
+      </button>
+      {popover.open ? (
+        <div className="rail-popover rail-popover--bottom view-menu experiments-menu" role="dialog" aria-label="Deep Dive experiments">
+          <div className="rail-popover-title">Deep Dive experiments</div>
+          <p className="experiments-menu-note">Off by default. Each one works on its own; they apply to the next dive message.</p>
+          {EXPERIMENT_GROUPS.map((group) => (
+            <div key={group.title} className="experiments-menu-group">
+              <div className="experiments-menu-group-title">{group.title}</div>
+              {group.items.map((item) => (
+                <div key={item.key} title={item.hint}>
+                  <SwitchRow
+                    icon={null}
+                    label={item.label}
+                    checked={experiments[item.key]}
+                    onChange={() => setExperiments({ [item.key]: !experiments[item.key] })}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="rail-popover-separator" />
+          <div className="experiments-menu-actions">
+            <button type="button" className="view-menu-action" onClick={() => setExperiments(Object.fromEntries(Object.keys(DEFAULT_EXPERIMENTS).map((key) => [key, true])))}>
+              Turn all on
+            </button>
+            <button type="button" className="view-menu-action" onClick={() => setExperiments(DEFAULT_EXPERIMENTS)} disabled={onCount === 0}>
+              Turn all off
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

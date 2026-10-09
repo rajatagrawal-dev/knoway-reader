@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { DiveHighlight } from "./types";
 import { useNoteControl } from "../components/NoteControl";
 import HighlightToolbar from "../components/HighlightToolbar";
-import { useFlippedPlacement, type AnchorRect } from "./useFlippedPlacement";
+import type { AnchorRect } from "./useFlippedPlacement";
+import FloatingTip from "../components/FloatingTip";
 
 type HighlightStyleOverride = Pick<DiveHighlight, "highlightColor" | "highlightStyle">;
 type HighlightStyle = NonNullable<DiveHighlight["highlightStyle"]>;
@@ -17,6 +18,7 @@ export interface DiveSelectionTipProps {
   divePanelId?: string;
   onOpenDive?: (divePanelId: string) => void;
   onPin: () => void;
+  onAddToQuestion?: () => void;
   onClose: () => void;
 }
 
@@ -34,6 +36,7 @@ export default function DiveSelectionTip({
   divePanelId,
   onOpenDive,
   onPin,
+  onAddToQuestion,
   onClose,
 }: DiveSelectionTipProps) {
   const [pendingStyle, setPendingStyle] = useState<HighlightStyle>("highlight");
@@ -53,20 +56,9 @@ export default function DiveSelectionTip({
     containerRef: tipRef,
   });
 
-  const placement = useFlippedPlacement(tipRef, anchorRect, [commentControls.showComment]);
-
-  useEffect(() => {
-    const handleMouseDown = (event: MouseEvent) => {
-      if (tipRef.current && !tipRef.current.contains(event.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [onClose]);
-
   return (
-    <div className="dive-selection-tip" style={{ left: placement.left, top: placement.top }} ref={tipRef}>
+    <FloatingTip anchorRect={anchorRect} onClose={onClose} deps={[commentControls.showComment]}>
+      <div ref={tipRef}>
       <HighlightToolbar
         copyText={selectionText}
         note={commentControls}
@@ -74,10 +66,13 @@ export default function DiveSelectionTip({
         onOpenDive={onOpenDive}
         onStartDive={onDiveDeeper}
         onPin={onPin}
+        onAddToQuestion={onAddToQuestion}
+        addToQuestionTitle="Add to this dive's next question"
         activeStyle={pendingStyle}
         onStyleChange={setPendingStyle}
         onColorChange={(presetColor) => finalize({ highlightColor: presetColor, highlightStyle: pendingStyle }, "")}
       />
-    </div>
+      </div>
+    </FloatingTip>
   );
 }

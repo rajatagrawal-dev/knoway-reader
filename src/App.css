@@ -701,6 +701,7 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 /* Placeholder that PersistentPdfPane reparents the always-mounted PdfPane's
@@ -714,6 +715,7 @@
 }
 
 .pdf-pane-host {
+  position: relative; /* anchors the page navigator */
   height: 100%;
   width: 100%;
 }
@@ -805,34 +807,6 @@
   place-items: center;
   height: 100%;
   color: #ffffff;
-}
-
-.upload-screen {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 2rem;
-  background: var(--panel-bg);
-}
-
-.upload-card {
-  width: min(100%, 480px);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2rem;
-  box-shadow: 0 12px 30px var(--shadow-color);
-}
-
-.upload-card h1 {
-  margin: 0 0 0.75rem;
-  color: var(--text);
-}
-
-.upload-card p {
-  margin: 0 0 1.5rem;
-  color: var(--muted);
-  line-height: 1.6;
 }
 
 /* HighlightToolbar — the one highlight tooltip used everywhere (fresh
@@ -947,24 +921,6 @@
   width: 12px;
   height: 12px;
   stroke-width: 3;
-}
-
-/* Primary/CTA buttons across the app share one restrained treatment: an
-   outlined button in the muted link color rather than a solid saturated
-   fill, to match the reference paper's understated palette. */
-.upload-card button,
-.dive-panel-composer button {
-  border: 1px solid var(--link);
-  background: var(--bg);
-  color: var(--link);
-  border-radius: 4px;
-  padding: 0.6rem 1rem;
-  font-weight: 600;
-}
-
-.upload-card button:hover,
-.dive-panel-composer button:hover {
-  background: var(--link-tint);
 }
 
 @media (max-width: 900px) {
@@ -1452,9 +1408,43 @@
   font-weight: 600;
 }
 
-.annot-dive-link:hover {
+.annot-dive-link:hover,
+.annot-dive-link.is-open {
   background: var(--link);
   color: var(--on-link);
+}
+
+/* A dive's tree summary, opened from its highlight's card. */
+.annot-card-summary {
+  margin-top: 0.15rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.83rem;
+  line-height: 1.5;
+  cursor: auto;
+}
+
+.annot-card-summary h2 {
+  margin: 0.7rem 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+.annot-card-summary p,
+.annot-card-summary ul {
+  margin: 0.35rem 0;
+}
+
+.annot-card-summary ul {
+  padding-left: 1.1rem;
+}
+
+.annot-card-summary .annot-card-summary-stale {
+  margin: 0 0 0.35rem;
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
 .annot-card-context {
@@ -1502,6 +1492,13 @@
   color: var(--text);
   font-size: 0.9rem;
   line-height: 1.45;
+}
+
+/* KaTeX's default 1.21em towers over 0.9rem card text; normal white-space
+   lets a long equation wrap between its terms like the text around it. */
+.annot-math .katex {
+  font-size: 1.05em;
+  white-space: normal;
 }
 
 .annot-card-placeholder {
@@ -1917,18 +1914,18 @@
 /* Display equations get their own breathing room: centered, set off from
    the prose above and below, and scrolling sideways on their own (rather
    than the whole pane) when a wide matrix doesn't fit. */
-.dive-turn .dive-equation {
+:is(.dive-turn, .answer-markdown) .dive-equation {
   margin: 1.1em 0 1.2em;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
-.dive-turn .katex-display {
+:is(.dive-turn, .answer-markdown) .katex-display {
   margin: 0;
   padding: 0.25em 0;
 }
 
-.dive-turn .katex-display > .katex,
+:is(.dive-turn, .answer-markdown) .katex-display > .katex,
 .dive-turn .katex-display > mark > .katex {
   font-size: 1.12em;
 }
@@ -1943,7 +1940,7 @@
   border-radius: 4px;
 }
 
-.dive-turn .katex {
+:is(.dive-turn, .answer-markdown) .katex {
   font-size: 1.05em;
 }
 
@@ -1954,14 +1951,14 @@
    producing garbled text (stray "\beta", "$$", etc.) wherever that selection
    is reused — e.g. as the opening message of a nested dive. Excluding it
    from selection keeps captured text limited to what's actually visible. */
-.dive-turn .katex-mathml {
+:is(.dive-turn, .answer-markdown) .katex-mathml {
   user-select: none;
 }
 
 /* If a single equation still fails to parse despite the normalization
    backstop, show it as plain text in the surrounding font rather than
    KaTeX's jarring red error styling. */
-.dive-turn .katex-error {
+:is(.dive-turn, .answer-markdown) .katex-error {
   color: inherit;
   font-family: inherit;
 }
@@ -1969,7 +1966,7 @@
 /* A paragraph that's just one equation (whether the model used $$...$$ or
    a standalone $...$) reads as a display equation: its own centered line,
    set off from the surrounding prose. */
-.dive-turn p.dive-equation-line {
+:is(.dive-turn, .answer-markdown) p.dive-equation-line {
   text-align: center;
   margin: 0.7em 0;
   overflow-x: auto;
@@ -2045,49 +2042,79 @@
   z-index: 30;
 }
 
-/* Lines up with the prose column above so the follow-up box reads as part
-   of the same page rather than a separate toolbar. */
-/* The textarea and Send button share one height (--composer-control-height)
-   so they line up at a single line; a taller multi-line draft grows upward
-   with the button staying anchored to its bottom edge. */
-.dive-panel-composer {
-  --composer-control-height: 2.75rem;
-  display: flex;
-  align-items: flex-end;
-  gap: 0.5rem;
-  padding: 0.75rem max(1.5rem, calc((100% - 40rem) / 2)) 1rem;
+/* The question box shared by Deep Dive and Ask (grounding/QuestionComposer):
+   attachment chips, then the textarea and send button on one line. They share
+   one height (--composer-control-height) so they line up at a single line; a
+   taller multi-line draft grows upward with the button anchored to its
+   bottom edge. */
+.question-composer {
+  padding: 0.75rem 0.75rem 0.9rem;
   border-top: 1px solid var(--border-soft);
 }
 
-.dive-panel-composer textarea {
+/* In a dive, lined up with the prose column above so the follow-up box reads
+   as part of the same page rather than a separate toolbar. */
+.question-composer.dive-panel-composer {
+  padding: 0.75rem max(1.5rem, calc((100% - 40rem) / 2)) 1rem;
+}
+
+.question-composer-attachments {
+  margin-bottom: 0.5rem;
+}
+
+.question-composer-form {
+  --composer-control-height: 2.5rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.question-composer-form textarea {
   flex: 1;
+  min-width: 0;
   resize: none;
   min-height: var(--composer-control-height);
   max-height: 10rem;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.55rem 0.75rem;
+  padding: 0.45rem 0.7rem;
   background: var(--bg);
   color: var(--text);
   font: inherit;
   line-height: 1.5;
 }
 
-.dive-panel-composer button {
-  flex-shrink: 0;
-  height: var(--composer-control-height);
-  padding-block: 0;
-  border-radius: 8px;
-}
-
-.dive-panel-composer textarea:focus {
+.question-composer-form textarea:focus {
   outline: none;
   border-color: var(--link);
   box-shadow: 0 0 0 3px var(--link-tint);
 }
 
+.question-composer-form button {
+  flex-shrink: 0;
+  height: var(--composer-control-height);
+  padding: 0 0.95rem;
+  border: 1px solid var(--link);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--link);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.question-composer-form button:hover:not(:disabled) {
+  background: var(--link-tint);
+}
+
+.question-composer-form button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .deep-dive-view {
+  position: relative; /* the tree summary opens over the panes */
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -2502,6 +2529,9 @@
 }
 
 /* How the definition was arrived at (see GlossarySource). */
+/* One look for "where did this come from" badges — the glossary's
+   definitions and grounded answers alike (grounding/AnswerParts.tsx). */
+.source-badge,
 .glossary-source {
   border: 1px solid var(--border-strong);
   border-radius: 999px;
@@ -2521,6 +2551,86 @@
 
 .glossary-source--general {
   border-style: dashed;
+}
+
+/* Where a term comes from (see OriginKind): a field's term stands out,
+   everyday and borrowed words stay quiet. */
+.glossary-origin--technical,
+.glossary-origin--abbreviation {
+  border-color: var(--link);
+  background: var(--link-tint);
+  color: var(--link);
+}
+
+.glossary-origin--foreign {
+  font-style: italic;
+}
+
+/* A term's meaning, each part captioned with its source. */
+.glossary-meaning {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.glossary-literal {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.glossary-sense-caption {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0 0 0.1rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.glossary-caption-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.glossary-caption-link:hover {
+  text-decoration: underline;
+}
+
+.glossary-sense--reference {
+  padding-top: 0.45rem;
+  border-top: 1px dashed var(--border-soft);
+}
+
+.glossary-reference-text {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+/* Floating cards keep an encyclopedia intro to a few lines; the link
+   opens the rest. The glossary panel shows it whole. */
+.glossary-card .glossary-reference-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* One run of text, so the clamp above counts its lines (formulas included). */
+.glossary-card .glossary-reference-text p {
+  display: inline;
 }
 
 /* Sidebar panel */
@@ -2626,6 +2736,24 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.glossary-refs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.glossary-refs-toggle:hover {
+  color: var(--text);
 }
 
 .glossary-refs {
@@ -2763,4 +2891,1590 @@
   color: var(--muted);
   font-size: 0.8rem;
   cursor: pointer;
+}
+
+/* "Back to p. N" after a jump (see navigation/BackPill): floats over the
+   bottom of the PDF, out of the text's way, until the reader goes back or
+   reads on. */
+/* ---- Page navigator (src/navigation) ---------------------------------- */
+
+.page-nav {
+  position: absolute;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px var(--shadow-color);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+
+.page-nav--visible {
+  opacity: 1;
+  pointer-events: auto;
+  transition-duration: 120ms;
+}
+
+.page-nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.page-nav-button:hover:not(:disabled),
+.page-nav-button.active {
+  background: var(--link-tint);
+  color: var(--link);
+}
+
+.page-nav-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.page-nav-caret {
+  min-width: 22px;
+  padding: 0 3px;
+}
+
+.page-nav-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+.page-nav-input {
+  box-sizing: border-box;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.page-nav-input:hover {
+  border-color: var(--border);
+}
+
+.page-nav-input:focus {
+  border-color: var(--link);
+  outline: none;
+}
+
+.page-nav-input[aria-invalid="true"] {
+  border-color: var(--danger);
+  background: var(--danger-tint);
+}
+
+.page-nav-total {
+  padding: 0 4px 0 2px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.page-nav-anchor {
+  position: relative;
+  display: flex;
+}
+
+/* Opens upward: the navigator sits at the bottom of the pane. */
+.page-nav-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 8px 24px var(--shadow-color);
+}
+
+.page-nav-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.page-nav-menu-item:hover {
+  background: var(--link-tint);
+  color: var(--link);
+}
+
+.page-nav-menu-current {
+  color: var(--muted);
+  cursor: default;
+}
+
+.page-nav-menu-current:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+.page-nav-menu-dot {
+  width: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.page-nav-menu-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--link);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-nav {
+    transition: none;
+  }
+}
+
+/* ---- Grounded answers (src/grounding) ---------------------------------- */
+
+.answer-badge {
+  display: inline-block;
+  margin-bottom: 0.35rem;
+}
+
+.answer-badge--document,
+.answer-badge--inferred {
+  border-color: var(--link);
+  background: var(--link-tint);
+  color: var(--link);
+}
+
+.answer-badge--inferred {
+  border-style: dotted;
+}
+
+.answer-badge--general,
+.answer-badge--not-covered {
+  border-style: dashed;
+}
+
+/* A citation after a claim. No text of its own (see CitationChip): the label
+   is generated content, so it's never part of a text selection. */
+.cite-chip {
+  display: inline-block;
+  margin: 0 0.1em 0 0.25em;
+  padding: 0 0.4em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: system-ui, sans-serif;
+  font-size: 0.68em;
+  font-weight: 600;
+  line-height: 1.55;
+  text-decoration: none;
+  vertical-align: 0.12em;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cite-chip::after {
+  content: attr(data-label);
+}
+
+.cite-chip:hover,
+.cite-chip:focus-visible {
+  border-color: var(--link);
+  color: var(--link);
+  background: var(--link-tint);
+}
+
+.cite-chip--inferred {
+  border-style: dotted;
+}
+
+.cite-chip--general {
+  border-style: dashed;
+  cursor: default;
+}
+
+.cite-chip--unverified,
+.cite-chip--warn {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.cite-preview {
+  position: fixed;
+  z-index: 60;
+  max-height: 22rem;
+  overflow-y: auto;
+  padding: 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px var(--shadow-color);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.cite-preview-note {
+  margin: 0.15rem 0.35rem 0.4rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.cite-preview-source,
+.answer-sources-item {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cite-preview-source:hover,
+.answer-sources-item:hover {
+  background: var(--panel-bg);
+}
+
+.cite-preview-page {
+  flex: none;
+  color: var(--link);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cite-preview-text mark {
+  background: var(--link-tint);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.answer-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.35rem;
+}
+
+.answer-sources {
+  min-width: 0;
+  font-size: 0.78rem;
+}
+
+.answer-sources-toggle,
+.answer-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.answer-sources-toggle:disabled {
+  cursor: default;
+}
+
+.answer-sources-toggle:not(:disabled):hover,
+.answer-more:hover {
+  color: var(--link);
+}
+
+.answer-more {
+  flex: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.answer-sources-list {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.answer-sources-snippet {
+  color: var(--muted);
+}
+
+/* ---- Ask panel (src/ask) --------------------------------------------------- */
+
+.ask-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 2.75rem 0.7rem 1rem; /* right: clear of the collapse button */
+}
+
+.ask-header h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+}
+
+.ask-header-actions {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.ask-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ask-icon-button:hover:not(:disabled),
+.ask-icon-button.is-active {
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
+.ask-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Earlier questions: a dropdown over the chat, not a list taking room in it. */
+.ask-history {
+  position: absolute;
+  top: calc(100% - 0.25rem);
+  left: 0.5rem;
+  right: 0.5rem;
+  z-index: 25;
+  max-height: min(24rem, 60vh);
+  overflow-y: auto;
+  padding: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 12px 30px var(--shadow-color);
+}
+
+.ask-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.ask-empty {
+  margin: auto 0;
+  padding: 0 1rem;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.ask-empty p {
+  margin: 0;
+}
+
+.ask-empty-hint {
+  margin-top: 0.35rem !important;
+  font-size: 0.8rem;
+}
+
+.ask-threads {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask-thread-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 6px;
+}
+
+.ask-thread-item:hover,
+.ask-thread-item.is-current {
+  background: var(--panel-bg);
+}
+
+.ask-thread-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ask-thread-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+.ask-thread-meta {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.ask-thread-actions {
+  display: flex;
+  padding-right: 0.25rem;
+  opacity: 0;
+}
+
+.ask-thread-item:hover .ask-thread-actions,
+.ask-thread-actions:focus-within {
+  opacity: 1;
+}
+
+.ask-rename {
+  flex: 1;
+  margin: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--link);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.ask-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.ask-turn {
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.ask-turn-user {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  white-space: pre-wrap;
+}
+
+.ask-turn-error,
+.ask-thinking {
+  color: var(--muted);
+}
+
+.answer-markdown p {
+  margin: 0 0 0.6rem;
+}
+
+.answer-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.answer-markdown ul,
+.answer-markdown ol {
+  margin: 0 0 0.6rem;
+  padding-left: 1.2rem;
+}
+
+.ask-not-covered-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.ask-not-covered-actions button {
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--link);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--link);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.ask-not-covered-actions button:hover {
+  background: var(--link-tint);
+}
+
+/* ---- "Add to question" (grounding/attachments.ts) ---------------------------- */
+
+.add-to-question {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.attachment-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask-turn-user .attachment-chips {
+  margin-top: 0.4rem;
+}
+
+.dive-turn-user .attachment-chips {
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.15rem 0.3rem 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.attachment-chip-thumb {
+  width: 1.6rem;
+  height: 1.1rem;
+  margin: -0.05rem 0 -0.05rem -0.25rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 3px;
+  object-fit: cover;
+  background: #fff;
+}
+
+.attachment-chip--document,
+.attachment-chip--region {
+  border-color: var(--link);
+  color: var(--link);
+  background: var(--link-tint);
+}
+
+.attachment-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip-remove {
+  display: inline-flex;
+  flex: none;
+  padding: 0.1rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.attachment-chip-remove:hover {
+  background: var(--border-soft);
+}
+
+
+/* ---- Library (src/library) ------------------------------------------------ */
+
+.library {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.library-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.library-header h1 {
+  margin: 0 auto 0 0;
+  font-size: 1.3rem;
+}
+
+.library-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: min(22rem, 40vw);
+  padding: 0 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.library-search:focus-within {
+  border-color: var(--link);
+}
+
+.library-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.library-sort {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.library-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid var(--link);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--link);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.library-add:hover {
+  background: var(--link-tint);
+}
+
+.library-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.library-icon-button:hover {
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
+.library-menu-anchor {
+  position: relative;
+}
+
+.library-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 12px 30px var(--shadow-color);
+}
+
+.library-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.library-menu button:hover {
+  background: var(--panel-bg);
+}
+
+.library-menu button.is-danger {
+  color: var(--danger);
+}
+
+.library-notice {
+  margin: 0;
+  padding: 0.55rem 2rem;
+  background: var(--link-tint);
+  color: var(--link);
+  font-size: 0.88rem;
+}
+
+.library-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem 2rem 3rem;
+}
+
+.library-section-title {
+  margin: 0 0 0.8rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.library-body section + section {
+  margin-top: 2rem;
+}
+
+.library-recent {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  gap: 1.25rem 1rem;
+}
+
+.library-card {
+  position: relative;
+  min-width: 0;
+}
+
+.library-card-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.library-card--wide .library-card-open {
+  flex-direction: row;
+  align-items: center;
+  padding: 0.6rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+}
+
+.library-card--wide .library-card-open:hover {
+  background: var(--panel-bg);
+}
+
+.library-cover {
+  display: block;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  box-shadow: 0 2px 8px var(--shadow-color);
+  transition: transform 120ms ease;
+}
+
+.library-card:not(.library-card--wide) .library-card-open:hover .library-cover {
+  transform: translateY(-2px);
+}
+
+.library-card--wide .library-cover {
+  flex: none;
+  width: 3.6rem;
+}
+
+.library-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+
+.library-cover-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 2rem;
+  text-transform: uppercase;
+}
+
+.library-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  padding-right: 1.75rem; /* clear of the card's menu button */
+}
+
+.library-card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.library-card-author,
+.library-progress-label {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-card-missing {
+  color: var(--danger);
+  font-size: 0.78rem;
+}
+
+.library-card.is-missing .library-cover {
+  opacity: 0.5;
+}
+
+.library-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.15rem;
+}
+
+.library-progress-bar {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border-soft);
+}
+
+.library-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--link);
+}
+
+.library-card-menu {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+}
+
+.library-card--wide .library-card-menu {
+  top: 50%;
+  right: 0.4rem;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.library-rename {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--link);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: min(32rem, 100%);
+  margin: 12vh auto 0;
+  padding: 3rem 2rem;
+  border: 2px dashed var(--border);
+  border-radius: 14px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.library-empty:hover {
+  border-color: var(--link);
+  color: var(--link);
+}
+
+.library-empty-title {
+  color: var(--text);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.library-empty-hint {
+  font-size: 0.88rem;
+}
+
+.library-drop-overlay {
+  position: absolute;
+  inset: 0.75rem;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--link);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--link-tint) 85%, transparent);
+  color: var(--link);
+  font-size: 1.2rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .library-header {
+    flex-wrap: wrap;
+    padding: 0.8rem 1rem;
+  }
+
+  .library-search {
+    order: 5;
+    width: 100%;
+  }
+
+  .library-body,
+  .library-notice {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* ---- Cross-references (src/xref) ------------------------------------------ */
+
+/* Over the text layer, like the glossary's marks, and like them ignoring the
+   pointer (text selection works through; hover is hit-tested). */
+.xref-marks-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Solid, where glossary terms are dotted: "points somewhere" rather than
+   "has a definition". */
+.xref-mark {
+  position: absolute;
+  border-bottom: 1px solid color-mix(in srgb, var(--link) 55%, transparent);
+}
+
+.xref-card {
+  position: fixed;
+  z-index: 60;
+  max-height: min(34rem, 80vh);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 14px 34px var(--shadow-color);
+}
+
+.xref-pinned {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(24rem, calc(100vw - 2rem));
+}
+
+.xref-card--pinned {
+  position: static;
+  max-height: 22rem;
+}
+
+.xref-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem;
+}
+
+.xref-preview-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.xref-preview-kind {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.xref-preview-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xref-preview-page {
+  flex: none;
+  color: var(--link);
+  font-size: 0.78rem;
+}
+
+.xref-icon-button {
+  display: inline-flex;
+  align-self: center;
+  padding: 0.15rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.xref-icon-button:hover {
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
+/* The target as printed: a crop of a white page, framed so it reads as the
+   document in both themes. */
+.xref-image {
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.xref-image img {
+  display: block;
+  width: 100%;
+}
+
+.xref-image--loading {
+  height: 5rem;
+  background: linear-gradient(90deg, var(--panel-bg), var(--border-soft), var(--panel-bg));
+  background-size: 200% 100%;
+  animation: xref-loading 1.2s ease-in-out infinite;
+}
+
+@keyframes xref-loading {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.xref-image-missing {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.xref-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xref-entry-text {
+  margin: 0 0 0.3rem;
+  color: var(--text);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.xref-entry-actions,
+.xref-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.xref-entry-actions button,
+.xref-preview-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.xref-entry-actions button:hover,
+.xref-preview-actions button:hover {
+  border-color: var(--link);
+  color: var(--link);
+  background: var(--link-tint);
+}
+
+/* ---- Deep Dive experiments (deepdive/experiments.ts) ---------------------- */
+
+.app-rail-badge {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--link);
+  color: var(--on-link);
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
+
+.experiments-menu {
+  width: 300px;
+  max-height: min(80vh, 640px);
+  overflow-y: auto;
+}
+
+.experiments-menu-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.experiments-menu-group-title {
+  margin: 0.35rem 0 0.1rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.experiments-menu-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Suggested next steps after an answer. */
+.dive-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+.dive-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dive-suggestion svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.dive-suggestion--dive {
+  border-color: var(--link);
+  color: var(--link);
+}
+
+.dive-suggestion--dive svg {
+  color: var(--link);
+}
+
+.dive-suggestion:hover:not(:disabled) {
+  background: var(--link-tint);
+}
+
+.dive-suggestion.explored {
+  opacity: 0.7;
+}
+
+.dive-suggestion:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Diagrams. */
+.dive-diagram {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem;
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg);
+  user-select: none;
+}
+
+.dive-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.dive-diagram--loading,
+.dive-diagram--failed figcaption {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.dive-diagram--failed pre {
+  margin: 0.4rem 0 0;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+
+/* A nested dive's reminder of where its tree started. */
+.dive-root-anchor {
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--link);
+  border-radius: 4px;
+  background: var(--panel-bg);
+}
+
+.dive-root-anchor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.dive-root-anchor-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dive-root-anchor-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.dive-root-anchor-text {
+  display: block;
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-style: italic;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Map and Summary, at the end of the breadcrumb. */
+.deep-dive-tools {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.deep-dive-tool {
+  position: relative;
+}
+
+.deep-dive-tool-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.deep-dive-tool-button:hover,
+.deep-dive-tool-button.active {
+  background: var(--link-tint);
+}
+
+.dive-map {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 8px 24px var(--shadow-color);
+}
+
+.dive-map ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dive-map-item {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0.35rem 0.45rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dive-map-item:hover {
+  background: var(--panel-bg);
+}
+
+.dive-map-item.current {
+  background: var(--link-tint);
+}
+
+.dive-map-label {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dive-map-meta {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+/* The tree summary, over the dive panes. */
+.tree-summary {
+  position: absolute;
+  inset: 3rem 0 0 auto;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: -8px 0 24px var(--shadow-color);
+}
+
+.tree-summary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem 0.6rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.tree-summary-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.tree-summary-kicker {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tree-summary-passage {
+  overflow: hidden;
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-summary-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tree-summary-close {
+  display: inline-flex;
+  padding: 0.15rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tree-summary-close:hover {
+  background: var(--panel-bg);
+  color: var(--text);
+}
+
+.tree-summary-stale,
+.tree-summary-error {
+  margin: 0.6rem 1.25rem 0;
+  font-size: 0.8rem;
+}
+
+.tree-summary-stale {
+  color: var(--muted);
+}
+
+.tree-summary-error {
+  color: var(--danger);
+}
+
+.tree-summary-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem 1.25rem 1.5rem;
+  line-height: 1.55;
 }

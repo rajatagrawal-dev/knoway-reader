@@ -4,17 +4,49 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import type { Element, ElementContent, Root } from "hast";
 import type { DiveHighlight, DiveHighlightPlacement, DivePanel } from "./types";
-import { childrenOf } from "./tree";
+import { childrenOf, rootPanelOf } from "./tree";
 import { useSelectionCapture } from "./useSelectionCapture";
 import type { AnchorRect } from "./useFlippedPlacement";
 import DiveSelectionTip from "./DiveSelectionTip";
 import DiveHighlightMark from "./DiveHighlightMark";
 import DiveHighlightEditTip from "./DiveHighlightEditTip";
 import { normalizeMathNotation } from "./mathNotation";
+import { rehypeEquationBlocks } from "./rehypeEquationBlocks";
 import { openingMessage } from "./prompts";
 import { rehypeAnnotate, type AnnotateOptions, type AnnotationTarget } from "./annotate";
+import {
+  answerGrounding,
+  chipLabel,
+  citedSources,
+  decodeChipTarget,
+  parseAnswer,
+  toChipMarkdown,
+  trimPartialMarker,
+} from "../grounding/citations";
+import CitationChip, { type ResolvedRef } from "../grounding/CitationChip";
+import { AnswerBadge, SourcesFooter } from "../grounding/AnswerParts";
+import type { SourceRef } from "../grounding/types";
+import type { Attachment } from "../grounding/attachments";
+import AttachmentChips from "../grounding/AttachmentChips";
+import QuestionComposer from "../grounding/QuestionComposer";
+import { Check, CornerDownRight, GitBranch, Network, Workflow } from "lucide-react";
+import { useExperiments } from "./experiments";
+import { hideSuggestionBlock, type DiveSuggestion } from "./suggestions";
+import { splitDiagram } from "./diagram";
+import MermaidDiagram from "./MermaidDiagram";
+
+// Sent by "More detail": a follow-up that reuses the last answer's sources.
+export const MORE_DETAIL_MESSAGE = "More detail, please.";
+// Sent by "Diagram" (the diagrams experiment).
+export const DIAGRAM_MESSAGE = "Show this as a diagram.";
+
+export interface SendOptions {
+  reuseSources?: boolean; // answer from the previous answer's sources, without choosing new ones
+  onSources?: (sources: SourceRef[]) => void; // the sources, once chosen — before the reply streams in
+  attachments?: Attachment[]; // text the reader added to this question
+  diagram?: boolean; // asks for a diagram (the diagrams experiment)
+}
 
 export interface DivePanelPaneProps {
   panel: DivePanel;
@@ -25,8 +57,22 @@ export interface DivePanelPaneProps {
   // isn't this one opens it; clicking it again once it is shows its tooltip.
   focusedPanelId: string;
   onOpenDive: (panelId: string) => void;
-  onSendMessage: (panelId: string, content: string, onChunk?: (chunk: string) => void) => Promise<void>;
+  onSendMessage: (
+    panelId: string,
+    content: string,
+    onChunk?: (chunk: string) => void,
+    options?: SendOptions,
+  ) => Promise<void>;
   onNestedDive: (request: { parentId: string; selection: string; contextText: string } & DiveHighlightPlacement) => void;
+  // A suggested dive's pill (the suggestions experiment).
+  onSuggestedDive: (request: { parentId: string; turnIndex: number; suggestion: DiveSuggestion }) => void;
+  pageLabel: (pageNumber: number) => string;
+  onJumpToSource: (ref: ResolvedRef) => void;
+  // Text added to this dive's next question ("Add to question").
+  attachments: Attachment[];
+  onAddToQuestion: (kind: Attachment["kind"], text: string, pageNumber?: number) => void;
+  onRemoveAttachment: (id: string) => void;
+  onClearAttachments: () => void;
   onAddHighlight: (
     panelId: string,
     text: string,
@@ -96,6 +142,10 @@ interface AnnotationHandlers {
   editingHighlightId: string | null;
   onMarkerClick: (panelId: string, anchorRect: DOMRect) => void;
   onHighlightClick: (highlight: DiveHighlight, anchorRect: DOMRect) => void;
+  // For citation chips: each turn's sources (the streaming reply's too).
+  sourcesForTurn: (turnIndex: number) => SourceRef[] | undefined;
+  pageLabel: (pageNumber: number) => string;
+  onJumpToSource: (ref: ResolvedRef) => void;
 }
 
 // `components` is passed to every ReactMarkdown instance in this panel and
@@ -132,39 +182,37 @@ function useAnnotationComponents(handlersRef: RefObject<AnnotationHandlers>): Co
         }
         return <mark>{children}</mark>;
       },
+      // Citation chips arrive as empty `#cite:` links (see toChipMarkdown);
+      // any other link is an ordinary one, opened outside the app.
+      a: ({ href, title, children }) => {
+        const target = href ? decodeChipTarget(href) : null;
+        if (!target) {
+          return (
+            <a href={href} target="_blank" rel="noreferrer">
+              {children}
+            </a>
+          );
+        }
+        const handlers = handlersRef.current!;
+        const byLabel = new Map((handlers.sourcesForTurn(target.turnIndex) ?? []).map((source) => [source.label, source]));
+        const refs = target.refs.flatMap(({ label, start, end }): ResolvedRef[] => {
+          const source = byLabel.get(label);
+          return source ? [{ source, range: [start, end] }] : [];
+        });
+        return (
+          <CitationChip
+            kind={target.kind}
+            quoteMissing={target.quoteMissing}
+            label={title ?? chipLabel(target.kind, refs.map((ref) => handlers.pageLabel(ref.source.pageNumber)))}
+            refs={refs}
+            pageLabel={(pageNumber) => handlersRef.current!.pageLabel(pageNumber)}
+            onJump={(ref) => handlersRef.current!.onJumpToSource(ref)}
+          />
+        );
+      },
     }),
     [handlersRef],
   );
-}
-
-// rehype-katex replaces a fenced $$ block with a bare <span
-// class="katex-display"> sitting directly between paragraphs. Wrapping each
-// one in a <div class="dive-equation"> gives it a block to style. A
-// paragraph that's just one inline equation (the model wrote a standalone
-// equation as $...$ rather than $$...$$) gets the same centered look via
-// dive-equation-line.
-function rehypeEquationBlocks() {
-  const hasClass = (node: ElementContent, name: string): boolean =>
-    node.type === "element" &&
-    Array.isArray(node.properties.className) &&
-    node.properties.className.includes(name);
-  const visit = (parent: Root | Element) => {
-    parent.children = parent.children.map((child) => {
-      if (child.type !== "element") return child;
-      if (hasClass(child, "katex-display")) {
-        return { type: "element", tagName: "div", properties: { className: ["dive-equation"] }, children: [child] };
-      }
-      if (child.tagName === "p") {
-        const content = child.children.filter((c) => !(c.type === "text" && c.value.trim() === ""));
-        if (content.length === 1 && hasClass(content[0], "katex")) {
-          child.properties.className = ["dive-equation-line"];
-        }
-      }
-      visit(child);
-      return child;
-    }) as typeof parent.children;
-  };
-  return (tree: Root) => visit(tree);
 }
 
 const KATEX_OPTIONS = { throwOnError: false, strict: false };
@@ -180,12 +228,19 @@ function TurnMarkdown({
   annotate,
   components,
   promoteMath = true,
+  sources,
+  pageLabel,
+  streaming = false,
 }: {
   content: string;
   turnIndex: number;
   annotate: Omit<AnnotateOptions, "turnIndex">;
   components: Components;
   promoteMath?: boolean;
+  // A grounded answer's sources: its [S1]-style markers become chips.
+  sources?: SourceRef[];
+  pageLabel?: (pageNumber: number) => string;
+  streaming?: boolean;
 }) {
   const rehypePlugins: MarkdownOptions["rehypePlugins"] = [
     [rehypeKatex, KATEX_OPTIONS],
@@ -195,11 +250,44 @@ function TurnMarkdown({
   return (
     <div className="dive-turn-body" data-turn-index={turnIndex}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={rehypePlugins} components={components}>
-        {normalizeMathNotation(content, { promote: promoteMath })}
+        {renderedMarkdown(content, { promoteMath, sources, pageLabel, streaming, turnIndex })}
       </ReactMarkdown>
     </div>
   );
 }
+
+function renderedMarkdown(
+  content: string,
+  options: {
+    promoteMath: boolean;
+    sources?: SourceRef[];
+    pageLabel?: (pageNumber: number) => string;
+    streaming: boolean;
+    turnIndex: number;
+  },
+): string {
+  // An answer's <next> block (suggested dives) is never text: it's
+  // stripped from a finished answer, and hidden while one streams in.
+  const visible = options.promoteMath ? hideSuggestionBlock(content, options.streaming) : content;
+  const text = options.streaming ? trimPartialMarker(visible) : visible;
+  const markdown = normalizeMathNotation(text, { promote: options.promoteMath });
+  if (!options.sources || !options.pageLabel) return markdown;
+  return toChipMarkdown(markdown, options.sources, options.turnIndex, options.pageLabel);
+}
+
+// An answer's diagram, drawn apart from its text (diagram.ts).
+const diagramOf = splitDiagram;
+
+// A grounded answer, not an error notice: gets a badge and a sources line.
+function isGroundedAnswer(turn: DivePanel["turns"][number]): turn is DivePanel["turns"][number] & { sources: SourceRef[] } {
+  return (
+    turn.role === "assistant" && Array.isArray(turn.sources) && Boolean(turn.content.trim()) && !turn.content.startsWith("⚠️")
+  );
+}
+
+// Replies saved empty (a model that ran out of tokens before answering, before
+// that was caught) read as a notice rather than a blank space.
+const EMPTY_REPLY_NOTICE = "⚠️ No answer came back for this. Ask again below.";
 
 // The dive's opening message is always the canned openingMessage(), which
 // just restates the selection — rendered as a chat bubble it reads as noise
@@ -243,6 +331,83 @@ function SourceExcerpt({
   );
 }
 
+// Where to go next after an answer (the suggestions experiment): questions
+// continue in this dive, concepts open a nested one. One already explored
+// is checked, and opens what was explored.
+function SuggestionPills({
+  suggestions,
+  explored,
+  disabled,
+  onPick,
+}: {
+  suggestions: DiveSuggestion[];
+  explored: (suggestion: DiveSuggestion) => boolean;
+  disabled: boolean;
+  onPick: (suggestion: DiveSuggestion) => void;
+}) {
+  return (
+    <div className="dive-suggestions" role="group" aria-label="Suggested next steps">
+      {suggestions.map((suggestion, index) => {
+        const done = explored(suggestion);
+        const Icon = suggestion.kind === "dive" ? GitBranch : suggestion.kind === "diagram" ? Workflow : CornerDownRight;
+        const title =
+          suggestion.kind === "dive"
+            ? done
+              ? "Open the dive on this"
+              : "Dive into this"
+            : suggestion.kind === "diagram"
+              ? "Show as a diagram"
+              : "Ask this";
+        return (
+          <button
+            key={`${suggestion.kind}-${index}`}
+            type="button"
+            className={`dive-suggestion dive-suggestion--${suggestion.kind}${done ? " explored" : ""}`}
+            title={title}
+            disabled={disabled && !(done && suggestion.kind === "dive")}
+            onClick={() => onPick(suggestion)}
+          >
+            {done ? <Check width={12} height={12} aria-hidden="true" /> : <Icon width={12} height={12} aria-hidden="true" />}
+            <span>{suggestion.text}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// A nested dive's reminder of where its tree started (the rootAnchor
+// experiment): the passage, its page, and a way back to its dive.
+function RootAnchorCard({
+  root,
+  pageLabel,
+  onOpen,
+}: {
+  root: DivePanel;
+  pageLabel: (pageNumber: number) => string;
+  onOpen: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const text = root.selection || "A selected region of the page";
+  const clipped = !open && text.length > 160 ? `${text.slice(0, 160)}…` : text;
+  return (
+    <div className="dive-root-anchor">
+      <div className="dive-root-anchor-head">
+        <span className="dive-root-anchor-label">
+          <Network width={12} height={12} aria-hidden="true" /> Started from
+          {root.pageNumber !== undefined ? ` p. ${pageLabel(root.pageNumber)}` : ""}
+        </span>
+        <button type="button" className="dive-root-anchor-open" onClick={onOpen}>
+          Back to it
+        </button>
+      </div>
+      <button type="button" className="dive-root-anchor-text" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+        {clipped}
+      </button>
+    </div>
+  );
+}
+
 // Cycles "Thinking.", "Thinking..", "Thinking..." while we wait for the
 // first chunk of a streamed reply, so the pane doesn't look stalled.
 function ThinkingIndicator() {
@@ -265,15 +430,24 @@ export default function DivePanelPane({
   onOpenDive,
   onSendMessage,
   onNestedDive,
+  onSuggestedDive,
+  pageLabel,
+  onJumpToSource,
+  attachments,
+  onAddToQuestion,
+  onRemoveAttachment,
+  onClearAttachments,
   onAddHighlight,
   onEditHighlight,
   onDeleteHighlight,
   onDiveFromHighlight,
   onPin,
 }: DivePanelPaneProps) {
+  const experiments = useExperiments();
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [streamingReply, setStreamingReply] = useState("");
+  const [streamingSources, setStreamingSources] = useState<SourceRef[] | undefined>(undefined);
   const [editingHighlight, setEditingHighlight] = useState<{
     highlightId: string;
     anchorRect: AnchorRect;
@@ -288,14 +462,6 @@ export default function DivePanelPane({
   const dialogueRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
-  // One line tall by default, growing with Shift+Enter lines (up to the CSS
-  // max-height, then scrolling) and shrinking back once the draft is sent.
-  useEffect(() => {
-    const composer = composerRef.current;
-    if (!composer) return;
-    composer.style.height = "auto";
-    composer.style.height = `${composer.scrollHeight + composer.offsetHeight - composer.clientHeight}px`;
-  }, [draft]);
   const { captured, clear } = useSelectionCapture(dialogueRef, "[data-turn-index]");
   const children = useMemo(() => childrenOf(allPanels, panel.id), [allPanels, panel.id]);
   const allPanelsRef = useRef(allPanels);
@@ -355,6 +521,10 @@ export default function DivePanelPane({
     editingHighlightId: editingHighlight?.highlightId ?? null,
     onMarkerClick: handleMarkerClick,
     onHighlightClick: handleHighlightClick,
+    sourcesForTurn: (turnIndex) =>
+      turnIndex === panel.turns.length ? streamingSources : panel.turns[turnIndex]?.sources,
+    pageLabel,
+    onJumpToSource,
   };
   const markdownComponents = useAnnotationComponents(annotationHandlersRef);
 
@@ -392,12 +562,22 @@ export default function DivePanelPane({
     mark?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [scrolledToDiveHighlightId, panelHighlights]);
 
-  const send = async (content: string) => {
+  const send = async (content: string, options: Pick<SendOptions, "reuseSources" | "diagram"> = {}) => {
     if (!content.trim() || pending) return;
     setPending(true);
     setStreamingReply("");
-    await onSendMessage(panel.id, content, (chunk) => setStreamingReply((prev) => prev + chunk));
+    setStreamingSources(undefined);
+    // "More detail" is about the last answer; what's attached waits for the
+    // reader's own next question.
+    const attached = options.reuseSources || options.diagram ? [] : attachments;
+    if (attached.length) onClearAttachments();
+    await onSendMessage(panel.id, content, (chunk) => setStreamingReply((prev) => prev + chunk), {
+      ...options,
+      attachments: attached,
+      onSources: setStreamingSources,
+    });
     setStreamingReply("");
+    setStreamingSources(undefined);
     setPending(false);
   };
 
@@ -409,33 +589,106 @@ export default function DivePanelPane({
   const lastTurn = panel.turns[panel.turns.length - 1];
   const awaitingReply = pending || lastTurn?.role === "user";
 
+  const root = experiments.rootAnchor && panel.parentId ? rootPanelOf(allPanels, panel.id) : null;
+  const askedLater = (turnIndex: number, text: string) =>
+    panel.turns.slice(turnIndex + 1).some((turn) => turn.role === "user" && turn.content.trim().toLowerCase() === text.trim().toLowerCase());
+  const explored = (turnIndex: number) => (suggestion: DiveSuggestion) =>
+    suggestion.kind === "dive"
+      ? children.some((child) => child.selection.trim().toLowerCase() === suggestion.text.trim().toLowerCase())
+      : suggestion.kind === "ask"
+        ? askedLater(turnIndex, suggestion.text)
+        : false;
+  const pickSuggestion = (turnIndex: number) => (suggestion: DiveSuggestion) => {
+    if (suggestion.kind === "dive") onSuggestedDive({ parentId: panel.id, turnIndex, suggestion });
+    else if (suggestion.kind === "diagram") void send(DIAGRAM_MESSAGE, { diagram: true });
+    else void send(suggestion.text);
+  };
+
   return (
     <div className="dive-panel-pane">
       <header className="dive-panel-header">{panel.label}</header>
       <div className="dive-panel-dialogue" ref={dialogueRef}>
+        {root && root.id !== panel.id ? (
+          <RootAnchorCard root={root} pageLabel={pageLabel} onOpen={() => onOpenDive(root.id)} />
+        ) : null}
         {panel.turns.map((turn, index) =>
           isOpeningTurn(panel, index) ? (
             <SourceExcerpt key={index} panel={panel} annotate={annotate} components={markdownComponents} />
           ) : (
             <div key={index} className={`dive-turn dive-turn-${turn.role}`}>
+              {isGroundedAnswer(turn) ? (
+                <AnswerBadge grounding={answerGrounding(parseAnswer(turn.content, turn.sources))} />
+              ) : null}
+              {turn.role === "assistant" && diagramOf(turn.content).code ? (
+                <MermaidDiagram code={diagramOf(turn.content).code!} />
+              ) : null}
               <TurnMarkdown
-                content={turn.content}
+                content={
+                  turn.role === "assistant" && !turn.content.trim()
+                    ? EMPTY_REPLY_NOTICE
+                    : turn.role === "assistant"
+                      ? diagramOf(turn.content).text
+                      : turn.content
+                }
                 turnIndex={index}
                 annotate={annotate}
                 components={markdownComponents}
                 promoteMath={turn.role === "assistant"}
+                sources={turn.role === "assistant" ? turn.sources : undefined}
+                pageLabel={pageLabel}
               />
+              {turn.role === "user" && turn.attachments?.length ? (
+                <AttachmentChips attachments={turn.attachments} pageLabel={pageLabel} />
+              ) : null}
+              {isGroundedAnswer(turn) ? (
+                <div className="answer-footer">
+                  <SourcesFooter
+                    sent={turn.sources}
+                    cited={citedSources(turn.content, turn.sources)}
+                    pageLabel={pageLabel}
+                    onJump={onJumpToSource}
+                  />
+                  {index === panel.turns.length - 1 && !awaitingReply ? (
+                    <button
+                      type="button"
+                      className="answer-more"
+                      onClick={() => void send(MORE_DETAIL_MESSAGE, { reuseSources: true })}
+                    >
+                      More detail
+                    </button>
+                  ) : null}
+                  {experiments.diagrams && index === panel.turns.length - 1 && !awaitingReply && !diagramOf(turn.content).code ? (
+                    <button type="button" className="answer-more" onClick={() => void send(DIAGRAM_MESSAGE, { diagram: true })}>
+                      Diagram
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {experiments.suggestions && turn.role === "assistant" && turn.suggestions?.length ? (
+                <SuggestionPills
+                  suggestions={experiments.diagrams ? turn.suggestions : turn.suggestions.filter((s) => s.kind !== "diagram")}
+                  explored={explored(index)}
+                  disabled={awaitingReply}
+                  onPick={pickSuggestion(index)}
+                />
+              ) : null}
             </div>
           ),
         )}
         {awaitingReply ? (
           <div className="dive-turn dive-turn-assistant dive-turn-streaming">
+            {streamingReply && diagramOf(hideSuggestionBlock(streamingReply)).pending ? (
+              <span className="dive-thinking">Drawing the diagram…</span>
+            ) : null}
             {streamingReply ? (
               <TurnMarkdown
-                content={streamingReply}
+                content={diagramOf(streamingReply).text}
                 turnIndex={panel.turns.length}
                 annotate={annotate}
                 components={markdownComponents}
+                sources={streamingSources}
+                pageLabel={pageLabel}
+                streaming
               />
             ) : (
               <span className="dive-thinking">
@@ -468,6 +721,17 @@ export default function DivePanelPane({
             clear();
           }}
           onPin={() => onPin(captured.text, captured.context)}
+          onAddToQuestion={() => {
+            // The quoted passage a root dive opens with is the document's
+            // own text; everything else here is an answer.
+            if (captured.turnIndex === 0 && !panel.parentId && panel.pageNumber !== undefined) {
+              onAddToQuestion("document", captured.text, panel.pageNumber);
+            } else {
+              onAddToQuestion("answer", captured.text);
+            }
+            clear();
+            composerRef.current?.focus();
+          }}
           onClose={clear}
         />
       ) : null}
@@ -502,35 +766,24 @@ export default function DivePanelPane({
           onClose={() => setEditingHighlight(null)}
         />
       ) : null}
-      <form
+      <QuestionComposer
         className="dive-panel-composer"
-        onSubmit={(event) => {
-          event.preventDefault();
+        value={draft}
+        onChange={setDraft}
+        onSubmit={() => {
           const content = draft.trim();
-          if (!content) return;
           setDraft("");
           void send(content);
         }}
-      >
-        <textarea
-          ref={composerRef}
-          value={draft}
-          placeholder="Ask a follow-up…"
-          rows={1}
-          disabled={pending}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            // Enter sends; Shift+Enter adds a line. Not while an IME is
-            // composing, where Enter confirms the composed text instead.
-            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
-          }}
-        />
-        <button type="submit" disabled={pending}>
-          {pending ? "Sending…" : "Send"}
-        </button>
-      </form>
+        placeholder="Ask a follow-up…"
+        busy={pending}
+        submitLabel="Send"
+        busyLabel="Sending…"
+        attachments={attachments}
+        pageLabel={pageLabel}
+        onRemoveAttachment={onRemoveAttachment}
+        textareaRef={composerRef}
+      />
     </div>
   );
 }

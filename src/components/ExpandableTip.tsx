@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { GhostHighlight } from "react-pdf-highlighter-plus";
+import type { GhostHighlight, ScaledPosition } from "react-pdf-highlighter-plus";
 import { usePdfHighlighterContext } from "react-pdf-highlighter-plus";
 import type { CommentedHighlight } from "../types";
 import { useNoteControl } from "./NoteControl";
 import HighlightToolbar from "./HighlightToolbar";
 import GlossaryCard from "../glossary/GlossaryCard";
 import type { GlossaryStore } from "../glossary/store";
+import type { GlossaryRef } from "../glossary/types";
 import { isGlossaryCandidate, MAX_TERM_WORDS } from "../glossary/textIndex";
 
 type HighlightStyleOverride = Pick<CommentedHighlight, "highlightColor" | "highlightStyle">;
@@ -16,7 +17,10 @@ export interface GlossaryTipBindings {
   // Adds the term (or finds it already there) and starts its lookup;
   // returns the entry's id, or null if the selection isn't a usable term.
   onAdd: (selection: string, pageNumber: number) => string | null;
+  pageLabel: (pageNumber: number) => string;
   onOpenInGlossary: (entryId: string) => void;
+  // To a passage the glossary links to — where the document defines a term.
+  onJumpToRef: (ref: GlossaryRef) => void;
   onRetry: (entryId: string) => void;
 }
 
@@ -28,6 +32,9 @@ interface ExpandableTipProps {
   ) => void;
   onDiveDeeper: (highlight: GhostHighlight) => void;
   onPin: (selectionText: string, pageNumber: number) => void;
+  // Text, or an area selection's image, added to the next question.
+  onAddToQuestion: (content: GhostHighlight["content"], position: ScaledPosition) => void;
+  addToQuestionTitle: () => string; // read when shown: Ask's, or the open dive's
   glossary: GlossaryTipBindings;
 }
 
@@ -35,6 +42,8 @@ export default function ExpandableTip({
   addHighlight,
   onDiveDeeper,
   onPin,
+  onAddToQuestion,
+  addToQuestionTitle,
   glossary,
 }: ExpandableTipProps) {
   const [pendingStyle, setPendingStyle] = useState<HighlightStyle>("highlight");
@@ -94,6 +103,12 @@ export default function ExpandableTip({
     onPin(text, selection.position.boundingRect.pageNumber);
   };
 
+  const handleAddToQuestion = () => {
+    const selection = getCurrentSelection();
+    if (!selection || (!selection.content.text && !selection.content.image)) return;
+    onAddToQuestion(selection.content, selection.position);
+  };
+
   const handleAddToGlossary = () => {
     const selection = getCurrentSelection();
     const text = selection?.content.text;
@@ -113,6 +128,11 @@ export default function ExpandableTip({
             setTip(null);
           }}
           onRetry={glossary.onRetry}
+          onJumpToRef={(ref) => {
+            setTip(null);
+            glossary.onJumpToRef(ref);
+          }}
+          pageLabel={glossary.pageLabel}
           onLayoutChange={updateTipPosition}
         />
       </div>
@@ -130,6 +150,8 @@ export default function ExpandableTip({
         onStartDive={handleDive}
         onPin={hasTextSelection ? handlePin : undefined}
         onAddToGlossary={hasTextSelection ? handleAddToGlossary : undefined}
+        onAddToQuestion={handleAddToQuestion}
+        addToQuestionTitle={addToQuestionTitle()}
         glossaryDisabledReason={
           isGlossaryCandidate(selectionText) ? undefined : `Select a single term (up to ${MAX_TERM_WORDS} words)`
         }

@@ -16,6 +16,7 @@ import type { CommentedHighlight } from "../types";
 import pdfWorkerUrl from "../pdfWorker";
 import { extractPageContext } from "./pdfContext";
 import GlossaryMarks from "../glossary/GlossaryMarks";
+import XrefMarks, { type XrefBindings } from "../xref/XrefMarks";
 import type { HighlightPen, Tool } from "../components/AppRail";
 
 export type PdfSource = string | Uint8Array;
@@ -76,7 +77,13 @@ export interface PdfPaneProps {
     contextText: string;
   }) => void;
   onPin: (selection: string, contextText: string) => void;
+  // Text or an area (fresh selection or existing highlight) added to the
+  // next question.
+  onAddToQuestion: (content: GhostHighlight["content"], position: ScaledPosition) => void;
+  addToQuestionTitle: () => string;
   glossary: GlossaryTipBindings;
+  // Cross-references ("Eq. (3.2)", "Theorem 4.1", "[12]"): previews and jumps.
+  xref: XrefBindings;
   // Dotted underlines (with hover definitions) on glossary terms in the text.
   glossaryMarks: boolean;
   // Collapses every sticky note on the page to a small comment-icon marker
@@ -115,7 +122,10 @@ export default function PdfPane({
   onDiveDeeper,
   onDiveIntoExisting,
   onPin,
+  onAddToQuestion,
+  addToQuestionTitle,
   glossary,
+  xref,
   glossaryMarks,
   notesCollapsed,
   initialPage,
@@ -340,7 +350,10 @@ export default function PdfPane({
                 store={glossary.store}
                 enabled={glossaryMarks}
                 onOpenInGlossary={glossary.onOpenInGlossary}
+                onJumpToRef={glossary.onJumpToRef}
+                pageLabel={glossary.pageLabel}
               />
+              <XrefMarks pdfDocument={pdfDocument} utilsRef={highlighterUtilsRef} bindings={xref} />
               <PdfHighlighter
                 pdfDocument={pdfDocument}
                 theme={PDF_VIEWER_THEME}
@@ -381,6 +394,8 @@ export default function PdfPane({
                         const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
                         onPin(selection, contextText);
                       }}
+                      onAddToQuestion={onAddToQuestion}
+                      addToQuestionTitle={addToQuestionTitle}
                       glossary={glossary}
                     />
                   )
@@ -401,6 +416,8 @@ export default function PdfPane({
                     const contextText = await extractPageContext(pdfDocumentRef.current!, pageNumber);
                     onDiveIntoExisting({ highlightId, content, contextText });
                   }}
+                  onAddToQuestion={onAddToQuestion}
+                  addToQuestionTitle={addToQuestionTitle}
                 />
               </PdfHighlighter>
             </>

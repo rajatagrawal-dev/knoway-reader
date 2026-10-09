@@ -1,3 +1,4 @@
+import { messageImages } from "./images.js";
 import { forEachSSEData } from "./sse.js";
 import { withTimeoutSignal, REQUEST_TIMEOUT_MS } from "./timeout.js";
 
@@ -6,10 +7,21 @@ const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 function toGeminiContents(messages) {
   return messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
-    parts: m.image
-      ? [{ text: m.content }, { inlineData: { mimeType: m.image.mediaType, data: m.image.data } }]
-      : [{ text: m.content }],
+    parts: [
+      { text: m.content },
+      ...messageImages(m).map((image) => ({ inlineData: { mimeType: image.mediaType, data: image.data } })),
+    ],
   }));
+}
+
+// Token counts as every provider reports them to onUsage. Gemini's thinking
+// tokens are billed as output.
+function toUsage(meta) {
+  return {
+    inputTokens: meta.promptTokenCount ?? 0,
+    cachedInputTokens: meta.cachedContentTokenCount ?? 0,
+    outputTokens: (meta.candidatesTokenCount ?? 0) + (meta.thoughtsTokenCount ?? 0),
+  };
 }
 
 async function post(fetchImpl, apiKey, url, body, signal, timeoutMs) {
@@ -37,9 +49,15 @@ async function post(fetchImpl, apiKey, url, body, signal, timeoutMs) {
 }
 
 // Google's Gemini API, via GOOGLE_API_KEY.
-export function createGoogleProvider({ apiKey, model, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
+// Gemini's thinking models count their thinking against maxOutputTokens, so
+// the role's answer cap gets the same headroom as other reasoning models
+// (see ./openAiCompatible.js).
+const THINKING_ALLOWANCE = 8192;
+
+export function createGoogleProvider({ apiKey, model, maxTokens, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
+  const generationConfig = maxTokens ? { generationConfig: { maxOutputTokens: maxTokens + THINKING_ALLOWANCE } } : {};
   return {
-    async streamReply({ system, messages, onText }) {
+    async streamReply({ system, messages, onText, onUsage }) {
       const { signal, clear } = withTimeoutSignal(timeoutMs);
       try {
         const url = `${API_BASE}/${model}:streamGenerateContent?alt=sse`;
@@ -47,12 +65,14 @@ export function createGoogleProvider({ apiKey, model, fetchImpl = fetch, timeout
           fetchImpl,
           apiKey,
           url,
-          { systemInstruction: { parts: [{ text: system }] }, contents: toGeminiContents(messages) },
+          { systemInstruction: { parts: [{ text: system }] }, contents: toGeminiContents(messages), ...generationConfig },
           signal,
           timeoutMs,
         );
 
         let accumulated = "";
+        // Each chunk carries running totals; the last one is final.
+        let usage = null;
         try {
           await forEachSSEData(res, (data) => {
             let evt;
@@ -61,6 +81,7 @@ export function createGoogleProvider({ apiKey, model, fetchImpl = fetch, timeout
             } catch {
               return;
             }
+            if (evt.usageMetadata) usage = evt.usageMetadata;
             const parts = evt.candidates?.[0]?.content?.parts || [];
             for (const part of parts) {
               if (typeof part.text === "string") {
@@ -74,13 +95,14 @@ export function createGoogleProvider({ apiKey, model, fetchImpl = fetch, timeout
             ? new Error(`Gemini API request timed out after ${timeoutMs}ms`)
             : err;
         }
+        if (usage && onUsage) onUsage(toUsage(usage));
         return accumulated;
       } finally {
         clear();
       }
     },
 
-    async complete({ system, prompt }) {
+    async complete({ system, prompt, onUsage }) {
       const { signal, clear } = withTimeoutSignal(timeoutMs);
       try {
         const url = `${API_BASE}/${model}:generateContent`;
@@ -88,11 +110,16 @@ export function createGoogleProvider({ apiKey, model, fetchImpl = fetch, timeout
           fetchImpl,
           apiKey,
           url,
-          { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: prompt }] }] },
+          {
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            ...generationConfig,
+          },
           signal,
           timeoutMs,
         );
         const data = await res.json();
+        if (data.usageMetadata && onUsage) onUsage(toUsage(data.usageMetadata));
         const parts = data.candidates?.[0]?.content?.parts || [];
         return parts.map((p) => p.text || "").join("");
       } finally {

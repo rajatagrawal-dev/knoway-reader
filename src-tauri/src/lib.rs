@@ -41,6 +41,12 @@ fn spawn_server(resource_path: &std::path::Path) -> std::io::Result<Child> {
 pub fn run() {
   tauri::Builder::default()
     .manage(ServerProcess(Mutex::new(None)))
+    // The document library lives in plain files under the app data folder
+    // (src/storage/desktop.ts); capabilities/default.json scopes access to
+    // $APPDATA/library.
+    .plugin(tauri_plugin_fs::init())
+    // "Show in Finder" for a document's folder in the library.
+    .plugin(tauri_plugin_opener::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -53,8 +59,7 @@ pub fn run() {
       } else {
         // A packaged build has no `npm run dev` process running the
         // Express server, so start the bundled copy ourselves using the
-        // system Node.js install. It still shells out to the local
-        // `claude` CLI for Deep Dive, same as in dev.
+        // system Node.js install.
         let resource_path = app
           .path()
           .resolve("resources/server.mjs", tauri::path::BaseDirectory::Resource)

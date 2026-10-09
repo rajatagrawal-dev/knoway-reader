@@ -20,7 +20,8 @@
         "center": true,
         "maximized": true,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {
@@ -37,7 +38,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["resources/*"],
+    "resources": [
+      "resources/*"
+    ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }

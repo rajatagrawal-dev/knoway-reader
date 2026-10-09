@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Search, X } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { ScaledPosition } from "react-pdf-highlighter-plus";
-import { getTextIndex } from "../glossary/job";
+import { getTextIndex } from "../text/documentText";
 import { findTextMatches, matchId, matchPosition, snippetAround, type DocumentTextIndex } from "../glossary/textIndex";
 import { formatPageLabel } from "../pageLabels";
 

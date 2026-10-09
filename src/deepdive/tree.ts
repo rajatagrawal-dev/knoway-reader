@@ -1,4 +1,6 @@
-import type { ChainEntry, DiveImage, DivePanel, DiveTurn } from "./types";
+import type { RegionRect } from "../grounding/attachments.ts";
+import type { SourceRef } from "../grounding/types.ts";
+import type { ChainEntry, DiveImage, DivePanel, DiveTurn } from "./types.ts";
 
 export function panelById(panels: DivePanel[], id: string): DivePanel | null {
   return panels.find((p) => p.id === id) ?? null;
@@ -36,6 +38,8 @@ export function createRootPanel(params: {
   selection: string;
   contextText: string;
   selectionImage?: DiveImage;
+  pageNumber?: number;
+  region?: RegionRect;
 }): DivePanel {
   return {
     id: getNextId(),
@@ -45,6 +49,8 @@ export function createRootPanel(params: {
     selectionImage: params.selectionImage,
     label: params.selection ? params.selection.slice(0, 60) : "Selected region",
     contextText: params.contextText,
+    pageNumber: params.pageNumber,
+    ...(params.region ? { region: params.region } : {}),
     turns: [],
     createdAt: new Date().toISOString(),
   };
@@ -54,6 +60,7 @@ export function createNestedPanel(params: {
   parentId: string;
   selection: string;
   contextText: string;
+  inheritedSources?: SourceRef[];
 }): DivePanel {
   return {
     id: getNextId(),
@@ -62,15 +69,33 @@ export function createNestedPanel(params: {
     selection: params.selection,
     label: params.selection.slice(0, 60),
     contextText: params.contextText,
+    inheritedSources: params.inheritedSources,
     turns: [],
     createdAt: new Date().toISOString(),
   };
 }
 
-export function appendTurn(panel: DivePanel, role: DiveTurn["role"], content: string): DivePanel {
+export function appendTurn(
+  panel: DivePanel,
+  role: DiveTurn["role"],
+  content: string,
+  extra: Pick<DiveTurn, "sources" | "attachments" | "suggestions" | "diagram"> = {},
+): DivePanel {
+  const { sources, attachments, suggestions, diagram } = extra;
   return {
     ...panel,
-    turns: [...panel.turns, { role, content, at: new Date().toISOString() }],
+    turns: [
+      ...panel.turns,
+      {
+        role,
+        content,
+        at: new Date().toISOString(),
+        ...(sources ? { sources } : {}),
+        ...(attachments?.length ? { attachments } : {}),
+        ...(suggestions?.length ? { suggestions } : {}),
+        ...(diagram ? { diagram } : {}),
+      },
+    ],
   };
 }
 
@@ -114,4 +139,29 @@ export function panelSubtreeIds(panels: DivePanel[], panelId: string): Set<strin
     }
   }
   return ids;
+}
+
+// Every panel in the tree rooted at rootId, depth-first in creation order,
+// with its depth (the root is 0) — what the dive map and tree summary walk.
+export function treeOf(panels: DivePanel[], rootId: string): { panel: DivePanel; depth: number }[] {
+  const out: { panel: DivePanel; depth: number }[] = [];
+  const visit = (id: string, depth: number) => {
+    const panel = panelById(panels, id);
+    if (!panel) return;
+    out.push({ panel, depth });
+    childrenOf(panels, id)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .forEach((child) => visit(child.id, depth + 1));
+  };
+  visit(rootId, 0);
+  return out;
+}
+
+// The turns a request resends (the backend is stateless): the last two
+// exchanges — and with keepOpeningAnswer, the dive's first exchange too,
+// which later questions usually refer back to.
+export function historyTurns(turns: DiveTurn[], historyTurns: number, keepOpening: boolean): DiveTurn[] {
+  const first = Math.max(0, turns.length - 1 - historyTurns);
+  const recent = turns.slice(first);
+  return keepOpening && first >= 2 ? [turns[0], turns[1], ...recent] : recent;
 }

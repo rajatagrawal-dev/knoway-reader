@@ -1,14 +1,18 @@
 import { useLayoutEffect, useRef } from "react";
 import { BookA, Check, ChevronRight, RotateCw } from "lucide-react";
 import { useGlossaryEntry, type GlossaryStore } from "./store";
-import { DefinitionText, SourceBadge } from "./GlossaryParts";
+import { GlossaryMeaning, OriginBadge } from "./GlossaryParts";
 import { lookupStatusText, refCountText } from "./format";
+import type { GlossaryRef } from "./types";
 
 interface GlossaryCardProps {
   store: GlossaryStore;
   entryId: string;
   onOpenInGlossary: (entryId: string) => void;
   onRetry: (entryId: string) => void;
+  // "Defined on p. 12": to the passage that defines the term.
+  onJumpToRef?: (ref: GlossaryRef) => void;
+  pageLabel?: (pageNumber: number) => string; // the book's own page labels
   // The card grows as the definition streams in; its host re-positions it.
   onLayoutChange?: () => void;
 }
@@ -17,14 +21,22 @@ interface GlossaryCardProps {
 // streaming in right next to the selected text, so the reader never has to
 // leave their place to see it. The entry is already saved to the glossary
 // panel by the time this appears.
-export default function GlossaryCard({ store, entryId, onOpenInGlossary, onRetry, onLayoutChange }: GlossaryCardProps) {
+export default function GlossaryCard({
+  store,
+  entryId,
+  onOpenInGlossary,
+  onRetry,
+  onJumpToRef,
+  pageLabel = String,
+  onLayoutChange,
+}: GlossaryCardProps) {
   const entry = useGlossaryEntry(store, entryId);
   const onLayoutChangeRef = useRef(onLayoutChange);
   onLayoutChangeRef.current = onLayoutChange;
 
   useLayoutEffect(() => {
     onLayoutChangeRef.current?.();
-  }, [entry?.definition, entry?.status, entry?.refCount]);
+  }, [entry?.definition, entry?.status, entry?.refCount, entry?.origin]);
 
   if (!entry) return null;
   const waiting = entry.status === "pending" || (entry.status === "streaming" && !entry.definition);
@@ -34,7 +46,7 @@ export default function GlossaryCard({ store, entryId, onOpenInGlossary, onRetry
       <div className="glossary-card-header">
         <BookA width={15} height={15} className="glossary-card-icon" />
         <span className="glossary-card-term">{entry.term}</span>
-        <SourceBadge source={entry.source} />
+        <OriginBadge origin={entry.origin} term={entry.term} />
       </div>
 
       {entry.status === "error" ? (
@@ -50,7 +62,7 @@ export default function GlossaryCard({ store, entryId, onOpenInGlossary, onRetry
           {lookupStatusText(entry)}
         </p>
       ) : (
-        <DefinitionText text={entry.definition} streaming={entry.status === "streaming"} />
+        <GlossaryMeaning entry={entry} pageLabel={pageLabel} onJumpToRef={onJumpToRef} />
       )}
 
       <div className="glossary-card-footer">

@@ -1,7 +1,10 @@
+import type { ReferenceLookup } from "../glossary/types";
+
 export interface DiveMessage {
   role: "user" | "assistant";
   content: string;
-  image?: { mediaType: string; data: string };
+  image?: { mediaType: string; data: string }; // a region dive's screenshot
+  images?: { mediaType: string; data: string }[]; // regions added to this question
 }
 
 // In the browser (and Tauri's dev webview, which loads the Vite dev
@@ -67,10 +70,23 @@ async function postSse(
 
 export function streamDiveReply(params: {
   system: string;
+  systemSuffix?: string; // the per-question part, sent apart so `system` can be cached
   messages: DiveMessage[];
   onText: (chunk: string) => void;
 }): Promise<string> {
-  return postSse("/api/dive/stream", { system: params.system, messages: params.messages }, params.onText);
+  return postSse(
+    "/api/dive/stream",
+    { system: params.system, ...(params.systemSuffix ? { systemSuffix: params.systemSuffix } : {}), messages: params.messages },
+    params.onText,
+  );
+}
+
+export function streamAskReply(params: {
+  system: string;
+  messages: DiveMessage[];
+  onText: (chunk: string) => void;
+}): Promise<string> {
+  return postSse("/api/ask/stream", { system: params.system, messages: params.messages }, params.onText);
 }
 
 export function streamGlossaryDefinition(params: {
@@ -78,8 +94,26 @@ export function streamGlossaryDefinition(params: {
   prompt: string;
   onText: (chunk: string) => void;
   signal?: AbortSignal;
+  images?: { mediaType: string; data: string }[];
 }): Promise<string> {
-  return postSse("/api/glossary/stream", { system: params.system, prompt: params.prompt }, params.onText, params.signal);
+  return postSse(
+    "/api/glossary/stream",
+    { system: params.system, prompt: params.prompt, ...(params.images?.length ? { images: params.images } : {}) },
+    params.onText,
+    params.signal,
+  );
+}
+
+// Dictionary and encyclopedia candidates for a glossary term (see
+// server/reference.js). Resolves to null rather than failing: the glossary
+// works without them.
+export async function fetchGlossaryReference(term: string, signal?: AbortSignal): Promise<ReferenceLookup | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/reference?term=${encodeURIComponent(term)}`, { signal });
+    return res.ok ? ((await res.json()) as ReferenceLookup) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function quickMeaning(params: { system: string; prompt: string }): Promise<string> {

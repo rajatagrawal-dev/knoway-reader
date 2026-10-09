@@ -2,9 +2,9 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
-  type ChangeEvent,
 } from "react";
 import {
   exportPdf,
@@ -39,52 +39,72 @@ import {
   paneWindow,
   panelById,
   panelSubtreeIds,
+  historyTurns,
   replacePanel,
   rootPanelOf,
 } from "./deepdive/tree";
-import {
-  diveHighlightsKeyForFile,
-  divesKeyForFile,
-  generalNotesKeyForFile,
-  loadDiveHighlights,
-  loadDivePanels,
-  loadGeneralNotes,
-  loadPins,
-  pinsKeyForFile,
-  saveDiveHighlights,
-  saveDivePanels,
-  saveGeneralNotes,
-  savePins,
-} from "./deepdive/store";
-import { buildDiveSystem, openingMessage } from "./deepdive/prompts";
+import { getStorage } from "./storage";
+import { openDocument } from "./storage/documents";
+import type { DocumentMeta } from "./storage/types";
+import LibraryHome from "./library/LibraryHome";
+import { pickTitle } from "./library/library";
+import { readPdfInfoFromDocument } from "./library/pdfInfo";
+import { sentenceAround, type XrefRef, type XrefTarget } from "./xref/detect";
+import { cropTarget } from "./xref/preview";
+import { DocDataWriter } from "./storage/docDataWriter";
+import { buildDivePrompt, openingMessage } from "./deepdive/prompts";
+import { getExperiments } from "./deepdive/experiments";
+import { divePromptOptions, prepareDiveSources, type DiveRequestContext } from "./deepdive/diveRequest";
+import { mergeSuggestions, splitSuggestions, suggestedDiveSources, type DiveSuggestion } from "./deepdive/suggestions";
+import { buildTreeSummaryRequest, treeAnswerCount } from "./deepdive/summary";
 import { streamDiveReply } from "./deepdive/api";
-import { parseDataUrlImage } from "./deepdive/image";
+import { downscaleImage, parseDataUrlImage } from "./deepdive/image";
 import { measureFreetextSize } from "./freetextSize";
 import type { GlossaryTipBindings } from "./components/ExpandableTip";
 import type { GlossaryFocusRequest } from "./components/GlossaryPanel";
-import { GlossaryStore, glossaryKeyForFile } from "./glossary/store";
+import { GlossaryStore } from "./glossary/store";
 import {
   addGlossaryTerm,
   cancelGlossaryJob,
-  getTextIndex,
   runGlossaryJob,
   type GlossaryJobContext,
 } from "./glossary/job";
-import type { GlossaryRef } from "./glossary/types";
+import { getTextIndex, setActiveDocument } from "./text/documentText";
+import { matchPosition } from "./glossary/textIndex";
+import { citedSources, markersToPages } from "./grounding/citations";
+import type { ResolvedRef } from "./grounding/CitationChip";
+import type { SourceRef } from "./grounding/types";
+import {
+  addAttachment,
+  attachmentImages,
+  attachmentInstructions,
+  makeAttachment,
+  makeRegionAttachment,
+  type Attachment,
+} from "./grounding/attachments";
+import type { SendOptions } from "./deepdive/DivePanelPane";
+import { AskStore } from "./ask/store";
+import type { AskContext } from "./ask/job";
+import type { AskThread } from "./ask/types";
+import PageNavigator from "./navigation/PageNavigator";
+import { NavigationHistory, placeFromScroll, scrollTopForPlace, type ReadingPlace } from "./navigation/history";
+import { formatPageLabel } from "./pageLabels";
+import type { GlossaryEntry, GlossaryRef } from "./glossary/types";
 
 type PdfSource = string | Uint8Array;
 
 interface LoadedPdf {
   source: PdfSource;
   fileName: string;
-  storageKey: string;
-  divesKey: string;
-  pinsKey: string;
-  diveHighlightsKey: string;
-  generalNotesKey: string;
+  docId: string; // content hash — the key for everything stored about it
+  title: string; // as the library shows it
 }
 
 const getNextId = () => crypto.randomUUID();
+
+// A dive follow-up re-sends only the last two exchanges before it (roadmap
+// §5.2): the selection and its sources already travel in the system prompt.
+const DIVE_HISTORY_TURNS = 4;
 
 // Top/bottom of one page's element, in the scroll container's own
 // scrollTop coordinate space (i.e. offset-from-document-start, not
@@ -169,54 +189,6 @@ const GLOSSARY_INDEX_DELAY_MS = 1500;
 // this only needs to outlast the scroll plus that animation.
 const GLOSSARY_FLASH_MS = 6000;
 
-function storageKeyForFile(file: File): string {
-  return `pdf-highlights:${file.name}:${file.size}:${file.lastModified}`;
-}
-
-function loadHighlights(key: string): CommentedHighlight[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    return JSON.parse(raw) as CommentedHighlight[];
-  } catch {
-    return [];
-  }
-}
-
-function saveHighlights(key: string, highlights: CommentedHighlight[]) {
-  localStorage.setItem(key, JSON.stringify(highlights));
-}
-
-function UploadScreen({ onFileSelected }: { onFileSelected: (file: File) => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  return (
-    <div className="upload-screen">
-      <div className="upload-card">
-        <h1>MuseReader</h1>
-        <p>
-          Upload a PDF to view it, highlight text, add comments, and place sticky
-          notes.
-        </p>
-        <button type="button" onClick={() => inputRef.current?.click()}>
-          Choose PDF file
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="application/pdf,.pdf"
-          hidden
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            const file = event.target.files?.[0];
-            if (file) onFileSelected(file);
-            event.target.value = "";
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
   const [loadedPdf, setLoadedPdf] = useState<LoadedPdf | null>(null);
   const [highlights, setHighlights] = useState<CommentedHighlight[]>([]);
@@ -259,6 +231,13 @@ export default function App() {
   );
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
   const [pageLabels, setPageLabels] = useState<string[] | null>(null);
+  // Read by long-lived callbacks (sending a dive message) at call time.
+  const pdfDocumentRef = useRef(pdfDocument);
+  pdfDocumentRef.current = pdfDocument;
+  const pageLabelsRef = useRef(pageLabels);
+  pageLabelsRef.current = pageLabels;
+  // The book's own label for a page ("xii", "42").
+  const pageLabelFor = useCallback((pageNumber: number) => formatPageLabel(pageLabelsRef.current, pageNumber), []);
   // Left as "auto" (fit-width) until the user's first manual zoom action, at
   // which point it becomes a fixed numeric scale — same behavior as Adobe
   // Reader. This has to be a controlled prop fed to PdfHighlighter (not just
@@ -269,6 +248,30 @@ export default function App() {
   // zoom back to fit-width on the very next resize tick.
   const [pdfScaleValue, setPdfScaleValue] = useState<PdfScaleValue>("auto");
   const [glossaryStore] = useState(() => new GlossaryStore());
+  const [docDataWriter] = useState(() => new DocDataWriter(getStorage()));
+  // Ask threads: a store outside React (answers keep streaming when the panel
+  // closes), the thread left open, and ⌘J's request to focus the composer.
+  const [askStore] = useState(() => new AskStore());
+  const [openAskThreadId, setOpenAskThreadId] = useState<string | null>(null);
+  const [askFocusRequest, setAskFocusRequest] = useState(0);
+  // Text the reader added to their next question ("Add to question"): for
+  // the Ask panel, and per dive.
+  const [askAttachments, setAskAttachments] = useState<Attachment[]>([]);
+  const [diveAttachments, setDiveAttachments] = useState<Record<string, Attachment[]>>({});
+  // Where the reader was before each jump (Back) and where Back took them
+  // from (Forward) — kept outside React, so each change bumps
+  // a version to re-render the page navigator. `recentJump` is the latest
+  // jump, for telling where the reader is while the viewer is still on its
+  // way (see placeHere): `landing` is where it goes (a place already read
+  // when `revisit`, i.e. reached by Back or Forward) and `arrived` turns
+  // true once the viewer gets there.
+  const [navHistory] = useState(() => new NavigationHistory());
+  const [, bumpHistory] = useReducer((version: number) => version + 1, 0);
+  const [recentJump, setRecentJump] = useState<{ landing: ReadingPlace; revisit: boolean; arrived: boolean } | null>(
+    null,
+  );
+  // ⌥⌘G's request to put the cursor in the page navigator's page number.
+  const [pageInputFocusRequest, setPageInputFocusRequest] = useState(0);
   const [glossaryFocusRequest, setGlossaryFocusRequest] = useState<GlossaryFocusRequest | null>(null);
   // Not saved with the other highlights — see jumpToGlossaryRef.
   const [glossaryFlash, setGlossaryFlash] = useState<CommentedHighlight | null>(null);
@@ -292,6 +295,43 @@ export default function App() {
   }, [highlightPen]);
   const [twoPageView, setTwoPageView] = useState(false);
   const [continuousScroll, setContinuousScroll] = useState(true);
+
+  // The open document's library entry, kept up to date with where the reader
+  // is — page, zoom, layout, open panel — and saved a moment after that
+  // changes (at once when leaving the document), for "Continue reading" and
+  // to reopen it just so.
+  const openMetaRef = useRef<DocumentMeta | null>(null);
+  const pendingZoomRef = useRef<number | "auto" | null>(null);
+  const readingStateTimer = useRef<number | undefined>(undefined);
+  const readingState = {
+    lastPage: currentPage,
+    view: { zoom: pdfScaleValue, twoPage: twoPageView, continuous: continuousScroll, panel: activeSidebarPanel },
+  };
+  const readingStateRef = useRef(readingState);
+  readingStateRef.current = readingState;
+
+  const flushReadingState = useCallback(async () => {
+    if (readingStateTimer.current === undefined) return;
+    window.clearTimeout(readingStateTimer.current);
+    readingStateTimer.current = undefined;
+    const meta = openMetaRef.current;
+    if (!meta) return;
+    const { lastPage, view } = readingStateRef.current;
+    const zoom = typeof view.zoom === "number" || view.zoom === "auto" ? view.zoom : "auto";
+    const updated: DocumentMeta = { ...meta, lastPage, view: { ...view, zoom } };
+    openMetaRef.current = updated;
+    await getStorage()
+      .putMeta(updated)
+      .catch(() => {
+        // Not saved: the document still opens, just at the start.
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!openMetaRef.current) return;
+    window.clearTimeout(readingStateTimer.current);
+    readingStateTimer.current = window.setTimeout(() => void flushReadingState(), 800);
+  }, [currentPage, pdfScaleValue, twoPageView, continuousScroll, activeSidebarPanel, flushReadingState]);
   const { theme, toggleTheme } = useTheme();
 
   const highlighterUtilsRef = useRef<PdfHighlighterUtils | null>(null);
@@ -305,6 +345,50 @@ export default function App() {
   useEffect(() => {
     panelsRef.current = panels;
   }, [panels]);
+
+  // A document opened before the library existed (or added by opening it
+  // directly) has no page count, cover or embedded title yet: fill them in
+  // from the PDF once it's loaded. A title the reader has set is kept.
+  useEffect(() => {
+    const meta = openMetaRef.current;
+    if (!pdfDocument || !meta || meta.pageCount) return;
+    let cancelled = false;
+    void (async () => {
+      const info = await readPdfInfoFromDocument(pdfDocument);
+      const current = openMetaRef.current;
+      if (cancelled || !current || current.docId !== meta.docId) return;
+      const fileTitle = current.fileName.replace(/\.pdf$/i, "") || current.fileName;
+      const title = current.title === fileTitle ? pickTitle(info.title, fileTitle) : current.title;
+      const updated: DocumentMeta = {
+        ...current,
+        title,
+        pageCount: info.pageCount,
+        ...(info.author && !current.author ? { author: info.author } : {}),
+      };
+      openMetaRef.current = updated;
+      const storage = getStorage();
+      await storage.putMeta(updated).catch(() => {});
+      if (info.thumbnail) await storage.putData(meta.docId, "thumbnail", info.thumbnail).catch(() => {});
+      setLoadedPdf((loaded) => (loaded && loaded.docId === meta.docId ? { ...loaded, title } : loaded));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfDocument]);
+
+  // Two-page layout is set on the viewer itself; a reopened document gets
+  // the layout (and zoom) it was last read at once its viewer exists.
+  useEffect(() => {
+    if (!pdfDocument) return;
+    const frame = requestAnimationFrame(() => {
+      const viewer = highlighterUtilsRef.current?.getViewer();
+      if (viewer) viewer.spreadMode = twoPageView ? SpreadMode.ODD : SpreadMode.NONE;
+      const zoom = pendingZoomRef.current;
+      pendingZoomRef.current = null;
+      if (zoom !== null && zoom !== "auto") setPdfScaleValue(zoom);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pdfDocument, twoPageView]);
 
   useEffect(() => {
     if (!pdfDocument) {
@@ -343,32 +427,40 @@ export default function App() {
 
   useEffect(() => {
     if (!loadedPdf) return;
-    saveHighlights(loadedPdf.storageKey, highlights);
-  }, [highlights, loadedPdf]);
+    docDataWriter.schedule(loadedPdf.docId, "highlights", highlights);
+  }, [docDataWriter, highlights, loadedPdf]);
 
   useEffect(() => {
     if (!loadedPdf) return;
-    saveDivePanels(loadedPdf.divesKey, panels);
-  }, [panels, loadedPdf]);
+    docDataWriter.schedule(loadedPdf.docId, "dives", panels);
+  }, [docDataWriter, panels, loadedPdf]);
 
   useEffect(() => {
     if (!loadedPdf) return;
-    savePins(loadedPdf.pinsKey, pins);
-  }, [pins, loadedPdf]);
+    docDataWriter.schedule(loadedPdf.docId, "pins", pins);
+  }, [docDataWriter, pins, loadedPdf]);
 
   useEffect(() => {
     if (!loadedPdf) return;
-    saveDiveHighlights(loadedPdf.diveHighlightsKey, diveHighlights);
-  }, [diveHighlights, loadedPdf]);
+    docDataWriter.schedule(loadedPdf.docId, "diveHighlights", diveHighlights);
+  }, [docDataWriter, diveHighlights, loadedPdf]);
 
   useEffect(() => {
     if (!loadedPdf) return;
-    saveGeneralNotes(loadedPdf.generalNotesKey, generalNotes);
-  }, [generalNotes, loadedPdf]);
+    docDataWriter.schedule(loadedPdf.docId, "generalNotes", generalNotes);
+  }, [docDataWriter, generalNotes, loadedPdf]);
+
+  // Saves are debounced; don't lose the last few hundred milliseconds of
+  // changes when the window closes.
+  useEffect(() => {
+    const flush = () => void docDataWriter.flush();
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, [docDataWriter]);
 
   // The file name lives in the window title now that there's no top bar.
   useEffect(() => {
-    const title = loadedPdf ? `${loadedPdf.fileName} — MuseReader` : "MuseReader";
+    const title = loadedPdf ? `${loadedPdf.title} — MuseReader` : "MuseReader";
     document.title = title;
     if ("__TAURI_INTERNALS__" in window) {
       import("@tauri-apps/api/window")
@@ -453,19 +545,22 @@ export default function App() {
     };
   }, [continuousScroll, pdfDocument]);
 
-  // Same "no partial movement" rule extended to the keyboard: with
-  // continuous scrolling off, arrow keys turn a whole page instead of
-  // nudging the scroll position. Ignored while a modifier key is held (so
-  // browser/OS shortcuts still work) or while typing in an editable field
-  // (search box, comment box, dive composer, etc).
+  // Arrow keys turn pages. ← and → always do — unless the page is zoomed
+  // wider than the pane, when they scroll it sideways as usual. ↑ and ↓ do
+  // too with continuous scrolling off (the same "no partial movement" rule
+  // as the wheel above), and scroll as usual with it on. Ignored while a
+  // modifier key is held (so browser/OS shortcuts still work), while typing
+  // in an editable field (search box, comment box, dive composer, etc), and
+  // while the PDF is out of sight in Deep Dive.
   useEffect(() => {
-    if (continuousScroll) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (isEditableTarget(event.target)) return;
       const viewer = highlighterUtilsRef.current?.getViewer();
-      if (!viewer) return;
+      if (!viewer || viewer.container.closest(".pdf-pane-offscreen-host")) return;
+      const sideways = event.key === "ArrowLeft" || event.key === "ArrowRight";
+      if (!sideways && continuousScroll) return;
+      if (sideways && viewer.container.scrollWidth > viewer.container.clientWidth + 1) return;
       if (event.key === "ArrowRight" || event.key === "ArrowDown") {
         event.preventDefault();
         viewer.nextPage();
@@ -478,45 +573,125 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [continuousScroll]);
 
-  const loadPdfFile = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const arrayBuffer = event.target?.result;
-      if (!(arrayBuffer instanceof ArrayBuffer)) return;
+  // Opens a PDF in the reader: from the library (its id known), or a file
+  // opened directly (⌘O in the reader), which is added to the library first.
+  const openPdf = useCallback(
+    async (bytes: Uint8Array, fileName: string, options: { legacyFile?: File; docId?: string } = {}) => {
+      // The previous document's pending saves go to the previous document.
+      await docDataWriter.flush();
+      await flushReadingState();
 
-      const storageKey = storageKeyForFile(file);
-      const divesKey = divesKeyForFile(file);
-      const pinsKey = pinsKeyForFile(file);
-      const diveHighlightsKey = diveHighlightsKeyForFile(file);
-      const generalNotesKey = generalNotesKeyForFile(file);
-      setLoadedPdf({
-        source: new Uint8Array(arrayBuffer),
-        fileName: file.name,
-        storageKey,
-        divesKey,
-        pinsKey,
-        diveHighlightsKey,
-        generalNotesKey,
-      });
-      setHighlights(loadHighlights(storageKey));
-      setPanels(loadDivePanels(divesKey));
-      setPins(loadPins(pinsKey));
-      setDiveHighlights(loadDiveHighlights(diveHighlightsKey));
-      setGeneralNotes(loadGeneralNotes(generalNotesKey));
-      glossaryStore.load(glossaryKeyForFile(file));
+      let opened;
+      try {
+        // Finds the PDF in the library by content (adding it if new), moving
+        // over any notes the pre-library app kept in localStorage.
+        opened = await openDocument(
+          getStorage(),
+          { bytes, fileName, legacyFile: options.legacyFile, docId: options.docId },
+          localStorage,
+        );
+      } catch (error) {
+        console.error(error);
+        alert("Failed to open the PDF from the library.");
+        return;
+      }
+
+      const { docId } = opened.meta;
+      const stored = <T,>(kind: keyof typeof opened.data): T[] => {
+        const value = opened.data[kind];
+        return Array.isArray(value) ? (value as T[]) : [];
+      };
+      const loadedHighlights = stored<CommentedHighlight>("highlights");
+      const loadedPanels = stored<DivePanel>("dives");
+      const loadedPins = stored<Pin>("pins");
+      const loadedDiveHighlights = stored<DiveHighlight>("diveHighlights");
+      const loadedGeneralNotes = stored<GeneralNote>("generalNotes");
+      const loadedGlossary = stored<GlossaryEntry>("glossary");
+      const loadedThreads = stored<AskThread>("threads");
+
+      // Before the viewer mounts: the text index cache is keyed by it.
+      setActiveDocument(docId);
+      openMetaRef.current = opened.meta;
+      setLoadedPdf({ source: bytes, fileName, docId, title: opened.meta.title });
+      // Prime with the arrays actually put in state, so the save effects
+      // see them as already stored and don't write them straight back.
+      docDataWriter.prime(docId, "highlights", loadedHighlights);
+      docDataWriter.prime(docId, "dives", loadedPanels);
+      docDataWriter.prime(docId, "pins", loadedPins);
+      docDataWriter.prime(docId, "diveHighlights", loadedDiveHighlights);
+      docDataWriter.prime(docId, "generalNotes", loadedGeneralNotes);
+      setHighlights(loadedHighlights);
+      setPanels(loadedPanels);
+      setPins(loadedPins);
+      setDiveHighlights(loadedDiveHighlights);
+      setGeneralNotes(loadedGeneralNotes);
+      glossaryStore.load(loadedGlossary, (entries) => docDataWriter.schedule(docId, "glossary", entries));
+      askStore.load(loadedThreads, (threads) => docDataWriter.schedule(docId, "threads", threads));
+      setOpenAskThreadId(null);
+      setAskAttachments([]);
+      setDiveAttachments({});
       setGlossaryFlash(null);
+      navHistory.clear();
+      bumpHistory();
+      setRecentJump(null);
       setBaseTool("select");
       setOneShotTool(null);
       undoStackRef.current = [];
       setDiveFocusId(null);
-      setCurrentPage(1);
       setPdfDocument(null);
-    };
-    reader.onerror = () => {
-      alert("Failed to read the PDF file.");
-    };
-    reader.readAsArrayBuffer(file);
-  }, [glossaryStore]);
+      // Back where the reader left off: page, zoom, layout, open panel.
+      const view = opened.meta.view;
+      setCurrentPage(opened.meta.lastPage ?? 1);
+      // A fixed zoom is applied once the document is ready (below): given to
+      // the viewer before it has pages, it tries to scroll to one that
+      // doesn't exist yet.
+      setPdfScaleValue("auto");
+      pendingZoomRef.current = view?.zoom ?? null;
+      setTwoPageView(view?.twoPage ?? false);
+      setContinuousScroll(view?.continuous ?? true);
+      setActiveSidebarPanel(view ? (view.panel as SidebarPanel | null) : "toc");
+    },
+    [askStore, docDataWriter, flushReadingState, glossaryStore, navHistory],
+  );
+
+  const loadPdfFile = useCallback(
+    async (file: File) => {
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await file.arrayBuffer());
+      } catch {
+        alert("Failed to read the PDF file.");
+        return;
+      }
+      await openPdf(bytes, file.name, { legacyFile: file });
+    },
+    [openPdf],
+  );
+
+  const openFromLibrary = useCallback(
+    async (meta: DocumentMeta) => {
+      const bytes = await getStorage()
+        .getFile(meta.docId)
+        .catch(() => null);
+      if (!bytes) {
+        alert(`The PDF of “${meta.title}” couldn't be read from the library.`);
+        return;
+      }
+      await openPdf(bytes, meta.fileName, { docId: meta.docId });
+    },
+    [openPdf],
+  );
+
+  // Back to the library, saving everything about the document first.
+  const goHome = useCallback(async () => {
+    await docDataWriter.flush();
+    await flushReadingState();
+    openMetaRef.current = null;
+    setActiveDocument(null);
+    setDiveFocusId(null);
+    setPdfDocument(null);
+    setLoadedPdf(null);
+  }, [docDataWriter, flushReadingState]);
 
   const pushUndo = (entry: UndoEntry) => {
     const stack = undoStackRef.current;
@@ -710,7 +885,81 @@ export default function App() {
     }
   };
 
+  const currentPlace = (): ReadingPlace | null => {
+    const viewer = highlighterUtilsRef.current?.getViewer();
+    if (!viewer) return null;
+    const pageNumber = viewer.currentPageNumber;
+    const bounds = getPageVerticalBounds(viewer.container, pageNumber);
+    return bounds ? placeFromScroll(viewer.container.scrollTop, pageNumber, bounds) : { pageNumber, offset: 0 };
+  };
+
+  // Where the reader is, for Back or Forward to return to: while the viewer
+  // is still travelling to the last jump's target (clicking through search
+  // results faster than it scrolls), the spot it's passing isn't a place
+  // anyone was reading — the target is.
+  const placeHere = (): ReadingPlace | null =>
+    recentJump && !recentJump.arrived ? recentJump.landing : currentPlace();
+
+  // Call before jumping to `targetPage`: Back then returns to where the
+  // reader is now. While the viewer is still travelling to the previous
+  // target (see placeHere), that target is where they are if Back or
+  // Forward was taking them to it; a jump's target they haven't read yet,
+  // so Back keeps pointing at the last place they actually were.
+  const rememberPlace = (targetPage: number) => {
+    const here = currentPlace();
+    if (!here || here.pageNumber === targetPage) return;
+    const left = !recentJump || recentJump.arrived ? here : recentJump.revisit ? recentJump.landing : null;
+    if (left) navHistory.push(left);
+    else navHistory.discardForward();
+    bumpHistory();
+    setRecentJump({ landing: { pageNumber: targetPage, offset: 0 }, revisit: false, arrived: false });
+  };
+
+  const showPlace = (place: ReadingPlace) => {
+    const viewer = highlighterUtilsRef.current?.getViewer();
+    if (!viewer) return;
+    // Onto the page first (in paged mode it may not be laid out yet), then
+    // to the exact spot on it.
+    viewer.scrollPageIntoView({ pageNumber: place.pageNumber });
+    requestAnimationFrame(() => {
+      const bounds = getPageVerticalBounds(viewer.container, place.pageNumber);
+      if (bounds) viewer.container.scrollTop = scrollTopForPlace(place, bounds);
+    });
+  };
+
+  // Back (or Forward) over `steps` places at once — one for the button and
+  // ⌘← / ⌘→, more from the navigator's list of places.
+  const travel = (direction: "back" | "forward", steps = 1) => {
+    if (!highlighterUtilsRef.current?.getViewer()) return;
+    const here = placeHere();
+    const place = direction === "back" ? navHistory.back(here, steps) : navHistory.forward(here, steps);
+    if (!place) return;
+    bumpHistory();
+    setRecentJump({ landing: place, revisit: true, arrived: false });
+    showPlace(place);
+  };
+  const goBack = (steps = 1) => travel("back", steps);
+  const goForward = (steps = 1) => travel("forward", steps);
+
+  useEffect(() => {
+    setRecentJump((jump) =>
+      jump && !jump.arrived && Math.abs(currentPage - jump.landing.pageNumber) <= 1 ? { ...jump, arrived: true } : jump,
+    );
+  }, [currentPage]);
+
+  // A jump that never registers as arriving (the target was already on
+  // screen) still arrives.
+  useEffect(() => {
+    if (!recentJump || recentJump.arrived) return;
+    const timer = window.setTimeout(
+      () => setRecentJump((jump) => (jump && !jump.arrived ? { ...jump, arrived: true } : jump)),
+      3000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [recentJump]);
+
   const jumpToHighlight = (highlight: CommentedHighlight) => {
+    rememberPlace(highlight.position.boundingRect.pageNumber);
     setScrolledToHighlightId(highlight.id);
     highlighterUtilsRef.current?.scrollToHighlight(highlight);
   };
@@ -726,6 +975,7 @@ export default function App() {
       position,
       glossaryFlash: true,
     };
+    rememberPlace(position.boundingRect.pageNumber);
     setGlossaryFlash(flash);
     highlighterUtilsRef.current?.scrollToHighlight(flash);
     window.clearTimeout(glossaryFlashTimerRef.current);
@@ -733,8 +983,48 @@ export default function App() {
   };
 
   const jumpToGlossaryRef = (ref: GlossaryRef) => flashPassage(`glossary-${ref.id}`, ref.match, ref.position);
+  // For the selection tip's bindings, which must read it live (see below).
+  const jumpToGlossaryRefRef = useRef(jumpToGlossaryRef);
+  jumpToGlossaryRefRef.current = jumpToGlossaryRef;
 
   const jumpToSearchMatch = (match: SearchMatch) => flashPassage(`search-${match.id}`, match.match, match.position);
+
+  // A citation chip or source clicked in a dive: show the sentence the claim
+  // rests on, flashed in the PDF. The PDF shares the Deep Dive screen with
+  // the chain's first dive only, so from a deeper one that view comes up
+  // first — with an instant jump to the page, since the pane is being
+  // reparented (see handleOpenDiveHighlight), and the smooth flash after.
+  const jumpToSource = async ({ source, range }: ResolvedRef) => {
+    const pdf = pdfDocumentRef.current;
+    if (!pdf || !loadedPdf) return;
+    let position: ScaledPosition | null = null;
+    let text = source.text;
+    try {
+      const page = (await getTextIndex(pdf)).pages[source.pageNumber - 1];
+      if (page) {
+        position = matchPosition({ page, start: range[0], end: range[1] });
+        text = page.text.slice(range[0], range[1]);
+      }
+    } catch {
+      // No index: the page itself is the best we can show.
+    }
+
+    const focus = diveFocusIdRef.current;
+    let delay = 0;
+    if (focus && !paneWindow(ancestorChain(panelsRef.current, focus, loadedPdf.fileName)).some((e) => e.id === null)) {
+      const root = rootPanelOf(panelsRef.current, focus);
+      if (root) {
+        setDiveFocusId(root.id);
+        setCurrentPage(source.pageNumber);
+        highlighterUtilsRef.current?.getViewer()?.scrollPageIntoView({ pageNumber: source.pageNumber });
+        delay = 80;
+      }
+    }
+    window.setTimeout(() => {
+      if (position) flashPassage(`cite-${source.pageNumber}-${range[0]}`, text, position);
+      else goToPage(source.pageNumber);
+    }, delay);
+  };
 
   const handleDeleteGlossaryEntry = (entryId: string) => {
     cancelGlossaryJob(entryId);
@@ -744,7 +1034,8 @@ export default function App() {
   const retryGlossaryEntry = useCallback(
     (entryId: string) => {
       const context = glossaryContextRef.current;
-      if (context) void runGlossaryJob(glossaryStore, entryId, context);
+      if (!context || !glossaryStore.get(entryId)) return;
+      void runGlossaryJob(glossaryStore, entryId, context);
     },
     [glossaryStore],
   );
@@ -759,19 +1050,29 @@ export default function App() {
         const context = glossaryContextRef.current;
         return context ? addGlossaryTerm(glossaryStore, selection, pageNumber, context) : null;
       },
+      pageLabel: pageLabelFor,
       onOpenInGlossary: (entryId) => {
         setDiveFocusId(null);
         setActiveSidebarPanel("glossary");
         setGlossaryFocusRequest({ entryId, nonce: Date.now() });
       },
+      onJumpToRef: (ref) => jumpToGlossaryRefRef.current(ref),
       onRetry: retryGlossaryEntry,
     }),
-    [glossaryStore, retryGlossaryEntry],
+    [glossaryStore, retryGlossaryEntry, pageLabelFor],
   );
 
   const goToPage = (pageNumber: number) => {
+    rememberPlace(pageNumber);
     highlighterUtilsRef.current?.getViewer()?.scrollPageIntoView({ pageNumber });
   };
+
+  // Page turns aren't jumps: Back doesn't count them. pdf.js's own turns
+  // step over a whole spread in two-page view.
+  const previousPage = () => highlighterUtilsRef.current?.getViewer()?.previousPage();
+  const nextPage = () => highlighterUtilsRef.current?.getViewer()?.nextPage();
+
+  const focusPageInput = () => setPageInputFocusRequest((request) => request + 1);
 
   const applyZoom = (factor: number) => {
     const currentNumericScale =
@@ -823,6 +1124,61 @@ export default function App() {
     setSearchFocusRequest((value) => value + 1);
   };
 
+  // "Add to question" from any selection: into the dive being read when in
+  // Deep Dive, otherwise into the Ask panel (opening it). Reads the current
+  // mode through refs — the PDF's selection tip is rendered once per
+  // selection and would otherwise act on a stale one.
+  const pushAttachment = useCallback((attachment: Attachment, divePanelId?: string) => {
+      const targetDive = divePanelId ?? diveFocusIdRef.current;
+      if (targetDive) {
+        setDiveAttachments((all) => ({ ...all, [targetDive]: addAttachment(all[targetDive] ?? [], attachment) }));
+        return;
+      }
+      setAskAttachments((list) => addAttachment(list, attachment));
+      setActiveSidebarPanel("ask");
+      setAskFocusRequest((value) => value + 1);
+    }, []);
+
+  const addToQuestion = useCallback(
+    (kind: Attachment["kind"], text: string, pageNumber?: number, divePanelId?: string) => {
+      const attachment = makeAttachment(kind, text, pageNumber);
+      if (attachment) pushAttachment(attachment, divePanelId);
+    },
+    [pushAttachment],
+  );
+
+  // From the PDF (a fresh selection or an existing highlight): text as is;
+  // an area as its screenshot, scaled down like a dive's, plus whatever PDF
+  // text lies inside it.
+  const addPdfContentToQuestion = useCallback(
+    async (content: GhostHighlight["content"], position: ScaledPosition) => {
+      const pageNumber = position.boundingRect.pageNumber;
+      if (content.text) {
+        addToQuestion("document", content.text, pageNumber);
+        return;
+      }
+      const parsed = parseDataUrlImage(content.image);
+      if (!parsed) return;
+      const image = await downscaleImage(parsed);
+      let page = null;
+      try {
+        const pdf = pdfDocumentRef.current;
+        if (pdf) page = (await getTextIndex(pdf)).pages[pageNumber - 1] ?? null;
+      } catch {
+        // No text for the region: the image alone.
+      }
+      pushAttachment(makeRegionAttachment(image, pageNumber, page, position.boundingRect));
+    },
+    [addToQuestion, pushAttachment],
+  );
+
+  const openAsk = () => {
+    setDiveFocusId(null);
+    setActiveSidebarPanel("ask");
+    setAskFocusRequest((value) => value + 1);
+  };
+
+
   // Picking Area or Sticky note again cancels it, back to the base tool.
   const selectTool = (next: Tool) => {
     if (next === "area" || next === "note") {
@@ -842,8 +1198,13 @@ export default function App() {
 
   // Read by the one window-level key listener below, which is registered
   // once per document rather than on every render.
-  const shortcutsRef = useRef({ openSearch, undo, zoomIn, zoomOut, zoomToFit, escapeTool });
-  shortcutsRef.current = { openSearch, undo, zoomIn, zoomOut, zoomToFit, escapeTool };
+  // ⌘O in the reader opens another PDF (adding it to the library).
+  const openFileInputRef = useRef<HTMLInputElement>(null);
+  const openFile = () => openFileInputRef.current?.click();
+
+  const shortcuts = { openSearch, openAsk, openFile, undo, zoomIn, zoomOut, zoomToFit, escapeTool, goBack, goForward, focusPageInput };
+  const shortcutsRef = useRef(shortcuts);
+  shortcutsRef.current = shortcuts;
 
   useEffect(() => {
     if (!loadedPdf) return;
@@ -854,6 +1215,12 @@ export default function App() {
       if (mod && key === "f") {
         event.preventDefault();
         shortcuts.openSearch();
+      } else if (mod && key === "j") {
+        event.preventDefault();
+        shortcuts.openAsk();
+      } else if (mod && key === "o") {
+        event.preventDefault();
+        shortcuts.openFile();
       } else if (mod && (key === "=" || key === "+")) {
         event.preventDefault();
         shortcuts.zoomIn();
@@ -863,6 +1230,17 @@ export default function App() {
       } else if (mod && key === "0") {
         event.preventDefault();
         shortcuts.zoomToFit();
+      } else if (mod && !event.altKey && key === "arrowleft" && !isEditableTarget(event.target)) {
+        // As in a browser. (In a text field it keeps moving the cursor.)
+        event.preventDefault();
+        shortcuts.goBack();
+      } else if (mod && !event.altKey && key === "arrowright" && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        shortcuts.goForward();
+      } else if (mod && event.altKey && event.code === "KeyG") {
+        // By code: ⌥G types "©" on a Mac keyboard.
+        event.preventDefault();
+        shortcuts.focusPageInput();
       } else if (mod && key === "z" && !event.shiftKey && !event.altKey) {
         // Text fields keep their own undo.
         if (isEditableTarget(event.target)) return;
@@ -876,38 +1254,125 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [loadedPdf]);
 
-  // Appends the user turn, builds the system prompt from the panel's own
-  // context (+ its parent's selection, one sentence, per spec §6), streams
-  // the reply, and appends the assistant turn once done. A failure appends
-  // an inline "⚠️" turn instead of throwing, so the composer never crashes
-  // (spec §9).
+  // What a dive request is built from besides the panel (deepdive/
+  // diveRequest.ts), read fresh for each request — including which Deep
+  // Dive experiments are on.
+  const diveRequestContext = (): DiveRequestContext | null => {
+    const pdf = pdfDocumentRef.current;
+    if (!pdf) return null;
+    return {
+      pdf,
+      pageLabel: pageLabelFor,
+      panels: panelsRef.current,
+      highlights: highlightsRef.current,
+      glossary: glossaryStore.getSnapshot(),
+      experiments: getExperiments(),
+    };
+  };
+
+  // Suggested dives' sources, resolved in the background as soon as an
+  // answer suggests them (the suggestions experiment), keyed by the answer's
+  // panel and the topic — so opening one doesn't wait on the document's
+  // cross-reference and notation scans.
+  // Each entry notes what it was resolved for — the inherited passages and
+  // the experiment settings — and is used only if those still match.
+  const suggestionPrefetchRef = useRef(
+    new Map<string, { sources: ReturnType<typeof prepareDiveSources>; stamp: string }>(),
+  );
+  const prefetchKey = (parentId: string, topic: string) => `${parentId}|${topic.trim().toLowerCase()}`;
+  const prefetchStamp = (inherited: SourceRef[] | undefined) =>
+    JSON.stringify([inherited?.map((s) => s.chunkId ?? `${s.pageNumber}:${s.start}`), getExperiments()]);
+
+  // Read by Ask jobs when a question is sent.
+  const askContextRef = useRef<AskContext | null>(null);
+  askContextRef.current =
+    pdfDocument && loadedPdf
+      ? { pdfDocument, fileName: loadedPdf.fileName, pageLabel: pageLabelFor, pageLabels, currentPage }
+      : null;
+  const getAskContext = useCallback(() => askContextRef.current, []);
+
+  // Appends the user turn, chooses the document passages this request may
+  // cite (grounding/context.ts), streams the reply, and appends it with
+  // those sources. A failure appends an inline "⚠️" turn instead of
+  // throwing, so the composer never crashes (spec §9).
   const sendDiveMessage = useCallback(
-    async (panelId: string, content: string, onChunk?: (chunk: string) => void) => {
+    async (panelId: string, content: string, onChunk?: (chunk: string) => void, options: SendOptions = {}) => {
       if (!loadedPdf) return;
       const panel = panelById(panelsRef.current, panelId);
       if (!panel) return;
       const parentPanel = panel.parentId ? panelById(panelsRef.current, panel.parentId) : null;
+      const ctx = diveRequestContext();
+      const experiments = ctx?.experiments ?? getExperiments();
 
-      const withUserTurn = appendTurn(panel, "user", content);
+      const attachments = options.attachments ?? [];
+      const withUserTurn = appendTurn(panel, "user", content, { attachments, diagram: options.diagram });
       setPanels((prev) => replacePanel(prev, withUserTurn));
 
-      const system = buildDiveSystem(loadedPdf.fileName, withUserTurn, parentPanel);
-      // The backend is stateless (a fresh CLI process per request, no
-      // persisted session), so every call rebuilds the full turn history —
-      // an area-highlight's screenshot has to be resent on every follow-up,
-      // attached to the first turn, for the model to keep the visual context.
-      const messages = withUserTurn.turns.map((turn, index) => ({
+      // A suggested dive's first request may already be resolved.
+      const key = panel.parentId ? prefetchKey(panel.parentId, panel.selection) : null;
+      const entry = key && panel.turns.length === 0 && !attachments.length ? suggestionPrefetchRef.current.get(key) : undefined;
+      if (key) suggestionPrefetchRef.current.delete(key);
+      const prefetched = entry && entry.stamp === prefetchStamp(panel.inheritedSources) ? entry.sources : undefined;
+      const prepared = ctx
+        ? await (prefetched ?? prepareDiveSources(ctx, panel, content, { reuse: options.reuseSources ?? false, attachments }))
+        : undefined;
+      const sources = prepared?.sources;
+      if (sources) options.onSources?.(sources);
+      const attachedLabels =
+        attachments.length && sources ? sources.filter((s) => s.via === "attached" || (!s.via && !s.chunkId)).map((s) => s.label) : [];
+      const prompt = buildDivePrompt(
+        loadedPdf.fileName,
+        withUserTurn,
+        parentPanel,
+        sources
+          ? {
+              sources,
+              pageLabel: pageLabelFor,
+              attachmentNote: attachmentInstructions(attachments, attachedLabels, pageLabelFor),
+            }
+          : undefined,
+        ctx ? divePromptOptions(ctx, withUserTurn, sources, { splitAt: prepared?.splitAt, diagram: options.diagram }) : {},
+      );
+
+      // The backend is stateless, so each request carries the conversation
+      // itself — but only the last two exchanges of it (the selection and
+      // its sources are in the system prompt). Earlier answers' citation
+      // markers pointed at their own requests' sources, so they're resent
+      // as plain page references. An area-highlight's screenshot goes with
+      // the first message sent, for the model to keep the visual context.
+      const sent = historyTurns(withUserTurn.turns, DIVE_HISTORY_TURNS, experiments.keepOpeningAnswer);
+      const images = attachmentImages(attachments);
+      const messages = sent.map((turn, index) => ({
         role: turn.role,
-        content: turn.content,
+        content: turn.role === "assistant" ? markersToPages(turn.content, turn.sources ?? [], pageLabelFor) : turn.content,
         ...(index === 0 && panel.selectionImage ? { image: panel.selectionImage } : {}),
+        // Regions added to this question travel with it, not with later ones.
+        ...(index === sent.length - 1 && images.length ? { images } : {}),
       }));
 
       try {
-        const full = await streamDiveReply({ system, messages, onText: (chunk) => onChunk?.(chunk) });
+        const full = await streamDiveReply({
+          system: prompt.system,
+          ...(prompt.suffix ? { systemSuffix: prompt.suffix } : {}),
+          messages,
+          onText: (chunk) => onChunk?.(chunk),
+        });
+        // Suggested next steps come at the end of the answer; they're kept
+        // apart from its text.
+        const { body, suggestions } = experiments.suggestions ? splitSuggestions(full) : { body: full, suggestions: [] };
+        const merged = experiments.suggestions && !options.diagram ? mergeSuggestions(suggestions, sources) : [];
+        // Nothing to show is a failure, not an (empty) answer with a badge.
+        if (!body.trim()) throw new Error("The model returned an empty answer. Try asking again.");
         setPanels((prev) => {
           const latest = panelById(prev, panelId) ?? withUserTurn;
-          return replacePanel(prev, appendTurn(latest, "assistant", full));
+          const answered = appendTurn(latest, "assistant", body, { sources, suggestions: merged });
+          // Stable sources: the first grounded answer's set is what later
+          // follow-ups build on.
+          const withBase =
+            experiments.stableSources && sources && !answered.baseSources ? { ...answered, baseSources: sources } : answered;
+          return replacePanel(prev, withBase);
         });
+        if (ctx && merged.length) prefetchSuggestedDives(panelId, merged, body, sources);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Dive reply failed.";
         setPanels((prev) => {
@@ -916,33 +1381,153 @@ export default function App() {
         });
       }
     },
-    [loadedPdf],
+    // diveRequestContext and prefetchSuggestedDives read only refs, so
+    // they're safe to leave out.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [loadedPdf, pageLabelFor],
   );
 
+  // Resolves each suggested dive's sources now, locally (no model call),
+  // for the first request of the dive it would open.
+  const prefetchSuggestedDives = (
+    parentId: string,
+    suggestions: DiveSuggestion[],
+    content: string,
+    sources: SourceRef[] | undefined,
+  ) => {
+    const ctx = diveRequestContext();
+    if (!ctx) return;
+    const turn = { role: "assistant" as const, content, sources, at: "" };
+    for (const suggestion of suggestions) {
+      if (suggestion.kind !== "dive") continue;
+      const key = prefetchKey(parentId, suggestion.text);
+      if (suggestionPrefetchRef.current.has(key)) continue;
+      const panel = createNestedPanel({
+        parentId,
+        selection: suggestion.text,
+        contextText: content,
+        inheritedSources: suggestedDiveSources(turn, suggestion.sourceLabel),
+      });
+      const opening = openingMessage(panel.selection);
+      suggestionPrefetchRef.current.set(key, {
+        sources: prepareDiveSources({ ...ctx, panels: [...ctx.panels, panel] }, panel, opening, { reuse: false, attachments: [] }),
+        stamp: prefetchStamp(panel.inheritedSources),
+      });
+    }
+  };
+
+  // `firstMessage` and `attachments` for a dive that opens on a question of
+  // its own (see explainXref); otherwise it opens on the selection.
   const createAndOpenDive = useCallback(
-    (panel: DivePanel) => {
+    (panel: DivePanel, firstMessage?: string, attachments?: Attachment[]) => {
       // panelsRef is updated synchronously (not via the panels-syncing effect,
       // which hasn't run yet) so the immediate sendDiveMessage call below can
       // find this panel — it looks the panel up through the ref, not state.
       panelsRef.current = [...panelsRef.current, panel];
       setPanels(panelsRef.current);
       setDiveFocusId(panel.id);
-      void sendDiveMessage(panel.id, openingMessage(panel.selection));
+      void sendDiveMessage(panel.id, firstMessage ?? openingMessage(panel.selection), undefined, { attachments });
     },
     [sendDiveMessage],
   );
 
+  // A cross-reference's target, shown: flashed when it has a text anchor
+  // (a theorem's label, an equation number, a caption), else scrolled to.
+  // Either way the place left is remembered for Back.
+  const jumpToXref = async (target: XrefTarget) => {
+    const pdf = pdfDocumentRef.current;
+    if (!pdf) return;
+    if (target.range) {
+      const page = (await getTextIndex(pdf).catch(() => null))?.pages[target.pageNumber - 1];
+      const position = page ? matchPosition({ page, start: target.range[0], end: target.range[1] }) : null;
+      if (page && position) {
+        flashPassage(`xref-${target.key}`, page.text.slice(target.range[0], target.range[1]), position);
+        return;
+      }
+    }
+    rememberPlace(target.pageNumber);
+    const viewer = highlighterUtilsRef.current?.getViewer();
+    if (!viewer) return;
+    viewer.scrollPageIntoView({ pageNumber: target.pageNumber });
+    requestAnimationFrame(() => {
+      const bounds = getPageVerticalBounds(viewer.container, target.pageNumber);
+      if (bounds) viewer.container.scrollTop = bounds.top + target.top * (bounds.bottom - bounds.top) - 24;
+    });
+  };
+
+  // "Explain the connection": a dive on the sentence the reference is in,
+  // with its target added to the question — as an image of it (figures and
+  // equations read as printed) plus its text as a source, or a
+  // bibliography entry's text.
+  const explainXref = async (ref: XrefRef, target: XrefTarget) => {
+    const pdf = pdfDocumentRef.current;
+    if (!pdf) return;
+    const index = await getTextIndex(pdf).catch(() => null);
+    const refPage = index?.pages[ref.pageNumber - 1];
+    const position = refPage ? matchPosition({ page: refPage, start: ref.start, end: ref.end }) : null;
+    if (!refPage || !position) return;
+    const [from, to] = sentenceAround(refPage.text, ref.start, ref.end);
+    const sentence = refPage.text.slice(from, to).trim();
+
+    let attachment: Attachment | null = null;
+    if (target.kind === "citation" && target.entryText) {
+      attachment = makeAttachment("document", target.entryText, target.pageNumber);
+    } else {
+      const targetPage = index?.pages[target.pageNumber - 1] ?? null;
+      const crop = parseDataUrlImage((await cropTarget(pdf, target)) ?? undefined);
+      if (crop && targetPage) {
+        const rect = {
+          x1: 0,
+          y1: target.top * targetPage.height,
+          x2: targetPage.width,
+          y2: target.bottom * targetPage.height,
+          width: targetPage.width,
+          height: targetPage.height,
+        };
+        attachment = makeRegionAttachment(await downscaleImage(crop), target.pageNumber, targetPage, rect);
+      }
+    }
+
+    const highlightId = getNextId();
+    const panel = createRootPanel({
+      anchorHighlightId: highlightId,
+      selection: sentence,
+      contextText: sentence,
+      pageNumber: ref.pageNumber,
+    });
+    const anchor: CommentedHighlight = {
+      id: highlightId,
+      type: "text",
+      content: { text: ref.text },
+      position,
+      comment: "",
+      divePanelId: panel.id,
+      createdAt: new Date().toISOString(),
+    };
+    setHighlights((previous) => [anchor, ...previous]);
+    createAndOpenDive(
+      panel,
+      `How does ${target.name} (p. ${pageLabelFor(target.pageNumber)}) connect to this passage?`,
+      attachment ? [attachment] : undefined,
+    );
+  };
+
   const handleDiveDeeper = useCallback(
-    ({ highlight, contextText }: { highlight: GhostHighlight; contextText: string }) => {
+    async ({ highlight, contextText }: { highlight: GhostHighlight; contextText: string }) => {
       const text = highlight.content.text;
-      const selectionImage = parseDataUrlImage(highlight.content.image);
-      if (!text && !selectionImage) return;
+      const parsedImage = parseDataUrlImage(highlight.content.image);
+      if (!text && !parsedImage) return;
+      const selectionImage = parsedImage ? await downscaleImage(parsedImage) : undefined;
       const highlightId = getNextId();
       const panel = createRootPanel({
         anchorHighlightId: highlightId,
         selection: text ?? "",
         contextText,
         selectionImage,
+        pageNumber: highlight.position.boundingRect.pageNumber,
+        // Area dives keep their region: the areaContext experiment reads
+        // the text in and around it.
+        ...(parsedImage ? { region: highlight.position.boundingRect } : {}),
       });
       const next: CommentedHighlight = {
         ...highlight,
@@ -957,7 +1542,7 @@ export default function App() {
   );
 
   const handleDiveIntoExisting = useCallback(
-    ({
+    async ({
       highlightId,
       content,
       contextText,
@@ -967,13 +1552,16 @@ export default function App() {
       contextText: string;
     }) => {
       const text = content.text;
-      const selectionImage = parseDataUrlImage(content.image);
-      if (!text && !selectionImage) return;
+      const parsedImage = parseDataUrlImage(content.image);
+      if (!text && !parsedImage) return;
+      const selectionImage = parsedImage ? await downscaleImage(parsedImage) : undefined;
       const panel = createRootPanel({
         anchorHighlightId: highlightId,
         selection: text ?? "",
         contextText,
         selectionImage,
+        pageNumber: highlightsRef.current.find((highlight) => highlight.id === highlightId)?.position.boundingRect
+          .pageNumber,
       });
       // Not an undoable edit (see undo): it links the highlight to its dive.
       setHighlights((previous) =>
@@ -984,6 +1572,15 @@ export default function App() {
     [createAndOpenDive],
   );
 
+  // What a nested dive starts from: the passages the parent answer (the
+  // turn the reader selected in) actually cited.
+  const inheritedSourcesFrom = (parentId: string, turnIndex: number | undefined): SourceRef[] | undefined => {
+    const turn = turnIndex === undefined ? undefined : panelById(panelsRef.current, parentId)?.turns[turnIndex];
+    if (!turn?.sources) return undefined;
+    const cited = citedSources(turn.content, turn.sources);
+    return cited.length ? cited : undefined;
+  };
+
   const handleNestedDive = useCallback(
     ({
       parentId,
@@ -991,8 +1588,14 @@ export default function App() {
       contextText,
       turnIndex,
       occurrence,
-    }: { parentId: string; selection: string; contextText: string } & DiveHighlightPlacement) => {
-      const panel = createNestedPanel({ parentId, selection, contextText });
+      inheritedSources,
+    }: { parentId: string; selection: string; contextText: string; inheritedSources?: SourceRef[] } & DiveHighlightPlacement) => {
+      const panel = createNestedPanel({
+        parentId,
+        selection,
+        contextText,
+        inheritedSources: inheritedSources ?? inheritedSourcesFrom(parentId, turnIndex),
+      });
       // Mirrors handleDiveDeeper's root-level CommentedHighlight: without a
       // DiveHighlight carrying divePanelId, this new dive would have no
       // annotation row at all, so it wouldn't show up in the annotations
@@ -1012,6 +1615,51 @@ export default function App() {
       createAndOpenDive(panel);
     },
     [createAndOpenDive],
+  );
+
+  // A suggested dive (the suggestions experiment): reopens the dive on that
+  // topic if there already is one; otherwise a nested dive hung from the
+  // answer that suggested it, inheriting the passage it cited.
+  const handleSuggestedDive = useCallback(
+    ({ parentId, turnIndex, suggestion }: { parentId: string; turnIndex: number; suggestion: DiveSuggestion }) => {
+      const existing = panelsRef.current.find(
+        (panel) => panel.parentId === parentId && panel.selection.trim().toLowerCase() === suggestion.text.trim().toLowerCase(),
+      );
+      if (existing) {
+        setDiveFocusId(existing.id);
+        return;
+      }
+      const turn = panelById(panelsRef.current, parentId)?.turns[turnIndex];
+      if (!turn) return;
+      handleNestedDive({
+        parentId,
+        selection: suggestion.text,
+        contextText: turn.content.slice(0, 1000),
+        turnIndex,
+        inheritedSources: suggestedDiveSources(turn, suggestion.sourceLabel),
+      });
+    },
+    [handleNestedDive],
+  );
+
+  // A one-page summary of a whole dive tree (the treeSummary experiment),
+  // streamed through the dive role and kept on the tree's root.
+  const summarizeDiveTree = useCallback(
+    async (rootId: string, onChunk: (chunk: string) => void, onSources: (sources: SourceRef[]) => void) => {
+      if (!loadedPdf) return;
+      const { system, prompt, sources } = buildTreeSummaryRequest({
+        fileName: loadedPdf.fileName,
+        panels: panelsRef.current,
+        rootId,
+        pageLabel: pageLabelFor,
+      });
+      onSources(sources);
+      const content = await streamDiveReply({ system, messages: [{ role: "user", content: prompt }], onText: onChunk });
+      if (!content.trim()) throw new Error("The model returned an empty summary. Try again.");
+      const summary = { content, sources, at: new Date().toISOString(), turnCount: treeAnswerCount(panelsRef.current, rootId) };
+      setPanels((prev) => prev.map((panel) => (panel.id === rootId ? { ...panel, summary } : panel)));
+    },
+    [loadedPdf, pageLabelFor],
   );
 
   const handlePin = useCallback((text: string, context: string) => {
@@ -1067,7 +1715,12 @@ export default function App() {
         setDiveFocusId(highlight.divePanelId);
         return;
       }
-      const panel = createNestedPanel({ parentId: highlight.panelId, selection: highlight.text, contextText });
+      const panel = createNestedPanel({
+        parentId: highlight.panelId,
+        selection: highlight.text,
+        contextText,
+        inheritedSources: inheritedSourcesFrom(highlight.panelId, highlight.turnIndex),
+      });
       setDiveHighlights((previous) =>
         previous.map((h) => (h.id === highlight.id ? { ...h, divePanelId: panel.id } : h)),
       );
@@ -1145,7 +1798,7 @@ export default function App() {
   );
 
   if (!loadedPdf) {
-    return <UploadScreen onFileSelected={loadPdfFile} />;
+    return <LibraryHome storage={getStorage()} onOpen={(meta) => void openFromLibrary(meta)} />;
   }
 
   const pdfPaneProps = {
@@ -1165,7 +1818,16 @@ export default function App() {
     onDiveDeeper: handleDiveDeeper,
     onDiveIntoExisting: handleDiveIntoExisting,
     onPin: handlePin,
+    onAddToQuestion: (content: GhostHighlight["content"], position: ScaledPosition) =>
+      void addPdfContentToQuestion(content, position),
+    addToQuestionTitle: () =>
+      diveFocusIdRef.current ? "Add to this dive's next question" : "Add to your next question (Ask panel)",
     glossary: glossaryBindings,
+    xref: {
+      pageLabel: pageLabelFor,
+      onJump: (target: XrefTarget) => void jumpToXref(target),
+      onExplain: (ref: XrefRef, target: XrefTarget) => void explainXref(ref, target),
+    },
     glossaryMarks: glossaryMarksVisible,
     notesCollapsed,
     initialPage: currentPage,
@@ -1189,7 +1851,19 @@ export default function App() {
       {hoveredHighlightId ? (
         <style>{`.highlight-anchor[data-highlight-id="${CSS.escape(hoveredHighlightId)}"] :is(.TextHighlight__part, .AreaHighlight__part, .FreetextHighlight__container) { box-shadow: 0 0 0 2px var(--rphp-accent, #5b50e6); }`}</style>
       ) : null}
+      <input
+        ref={openFileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void loadPdfFile(file);
+          event.target.value = "";
+        }}
+      />
       <AppRail
+        onHome={() => void goHome()}
         activePanel={diveFocusId ? null : activeSidebarPanel}
         onSelectPanel={handleSelectSidebarPanel}
         tool={tool}
@@ -1237,6 +1911,16 @@ export default function App() {
             rootSlotRef={deepDiveRootSlotRef}
             onSendMessage={sendDiveMessage}
             onNestedDive={handleNestedDive}
+            onSuggestedDive={handleSuggestedDive}
+            onSummarizeTree={summarizeDiveTree}
+            pageLabel={pageLabelFor}
+            onJumpToSource={jumpToSource}
+            attachments={diveAttachments}
+            onAddToQuestion={(divePanelId, kind, text, pageNumber) => addToQuestion(kind, text, pageNumber, divePanelId)}
+            onRemoveAttachment={(divePanelId, id) =>
+              setDiveAttachments((all) => ({ ...all, [divePanelId]: (all[divePanelId] ?? []).filter((a) => a.id !== id) }))
+            }
+            onClearAttachments={(divePanelId) => setDiveAttachments((all) => ({ ...all, [divePanelId]: [] }))}
             onAddHighlight={handleAddDiveHighlight}
             onEditHighlight={handleEditDiveHighlight}
             onDeleteHighlight={handleDeleteDiveHighlight}
@@ -1283,6 +1967,17 @@ export default function App() {
               onSearchQueryChange={setSearchQuery}
               searchFocusRequest={searchFocusRequest}
               onJumpToSearchMatch={jumpToSearchMatch}
+              askStore={askStore}
+              getAskContext={getAskContext}
+              openAskThreadId={openAskThreadId}
+              onOpenAskThread={setOpenAskThreadId}
+              askFocusRequest={askFocusRequest}
+              onJumpToSource={jumpToSource}
+              askAttachments={askAttachments}
+              onAddToAsk={(kind, text) => addToQuestion(kind, text)}
+              onRemoveAskAttachment={(id) => setAskAttachments((list) => list.filter((a) => a.id !== id))}
+              onClearAskAttachments={() => setAskAttachments([])}
+              onPin={handlePin}
             />
 
             <main className="viewer">
@@ -1293,11 +1988,30 @@ export default function App() {
       </div>
 
       <PersistentPdfPane
+        key={loadedPdf.docId}
         pdfPaneProps={pdfPaneProps}
         dockTarget={dockTarget}
         workspaceSlotRef={workspaceSlotRef}
         deepDiveRootSlotRef={deepDiveRootSlotRef}
         highlighterUtilsRef={highlighterUtilsRef}
+        overlay={
+          pdfDocument ? (
+            <PageNavigator
+              currentPage={currentPage}
+              numPages={pdfDocument.numPages}
+              pageLabels={pageLabels}
+              twoPageView={twoPageView}
+              back={navHistory.backList()}
+              forward={navHistory.forwardList()}
+              onBack={goBack}
+              onForward={goForward}
+              onPreviousPage={previousPage}
+              onNextPage={nextPage}
+              onGoToPage={goToPage}
+              focusRequest={pageInputFocusRequest}
+            />
+          ) : null
+        }
       />
     </div>
   );

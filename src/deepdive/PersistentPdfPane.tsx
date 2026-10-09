@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { PdfHighlighterUtils } from "react-pdf-highlighter-plus";
 import PdfPane, { type PdfPaneProps } from "./PdfPane";
@@ -64,8 +64,10 @@ function applyScrollIntent(scrollEl: HTMLElement, intent: ScrollIntent) {
 }
 
 // The main document's PdfPane is rendered exactly once here for the whole
-// session — this component's own position in the tree never changes, so
-// React never unmounts the PdfPane/PdfHighlighter/pdf.js PDFViewer it holds.
+// time a document is open — this component's own position in the tree
+// never changes, so React never unmounts the PdfPane/PdfHighlighter/pdf.js
+// PDFViewer it holds (App keys it by document, so opening another one
+// starts fresh, at that document's own last page).
 // Instead of remounting on every workspace <-> Deep Dive transition, its
 // rendered DOM is reparented (via plain appendChild, which preserves
 // scrollTop) into whichever slot is currently visible.
@@ -75,12 +77,15 @@ export default function PersistentPdfPane({
   workspaceSlotRef,
   deepDiveRootSlotRef,
   highlighterUtilsRef,
+  overlay,
 }: {
   pdfPaneProps: PdfPaneProps;
   dockTarget: DockTarget;
   workspaceSlotRef: RefObject<HTMLDivElement>;
   deepDiveRootSlotRef: RefObject<HTMLDivElement>;
   highlighterUtilsRef: RefObject<PdfHighlighterUtils | null>;
+  // Floats over the pane and moves with it (the page navigator).
+  overlay?: ReactNode;
 }) {
   const paneHostRef = useRef<HTMLDivElement | null>(null);
   if (!paneHostRef.current) {
@@ -176,12 +181,22 @@ export default function PersistentPdfPane({
     }
   }, [dockTarget, workspaceSlotRef, deepDiveRootSlotRef, highlighterUtilsRef]);
 
+  // Unmounted when another document opens (App keys this by document), so
+  // the next one gets a fresh viewer: take this one's host out of its slot.
   useLayoutEffect(() => {
+    const host = paneHostRef.current;
     return () => {
+      host?.remove();
       offscreenHostRef.current?.remove();
       offscreenHostRef.current = null;
     };
   }, []);
 
-  return createPortal(<PdfPane {...pdfPaneProps} />, paneHostRef.current);
+  return createPortal(
+    <>
+      <PdfPane {...pdfPaneProps} />
+      {overlay}
+    </>,
+    paneHostRef.current,
+  );
 }

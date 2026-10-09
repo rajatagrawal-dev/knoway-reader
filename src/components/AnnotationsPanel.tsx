@@ -15,6 +15,7 @@ import {
   ClipboardCopy,
   Copy,
   CornerDownRight,
+  FileText,
   Funnel,
   Highlighter,
   MessagesSquare,
@@ -29,11 +30,16 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useDocumentOutline } from "react-pdf-highlighter-plus";
 import type { CommentedHighlight } from "../types";
-import type { DiveHighlight, DivePanel, GeneralNote, Pin } from "../deepdive/types";
+import type { DiveHighlight, DivePanel, DiveTreeSummary, GeneralNote, Pin } from "../deepdive/types";
 import { panelById, rootPanelOf } from "../deepdive/tree";
+import { treeAnswerCount } from "../deepdive/summary";
+import AnswerMarkdown from "../grounding/AnswerMarkdown";
+import type { ResolvedRef } from "../grounding/CitationChip";
 import { formatPageLabel } from "../pageLabels";
 import { HIGHLIGHT_COLOR_NAMES, HIGHLIGHT_COLOR_PRESETS } from "../highlightColors";
 
@@ -49,6 +55,7 @@ interface AnnotationsPanelProps {
   onEditFreetextText: (highlight: CommentedHighlight, text: string) => void;
   onHoverHighlight: (highlightId: string | null) => void;
   onOpenDiveFromHighlight: (highlight: CommentedHighlight) => void;
+  onJumpToSource: (ref: ResolvedRef) => void;
   onDeletePin: (pinId: string) => void;
   onEditPinComment: (pinId: string, comment: string) => void;
   onOpenDiveHighlight: (highlight: DiveHighlight) => void;
@@ -119,6 +126,10 @@ interface AnnotationRow {
   // hovered — only PDF highlights have one on screen alongside this panel.
   onHover?: (hovered: boolean) => void;
   onOpenDive?: () => void;
+  // A highlight whose dive tree has been summarized (the treeSummary
+  // experiment): the summary, and how many answers the tree has gained since.
+  diveSummary?: DiveTreeSummary;
+  diveSummaryNewAnswers?: number;
 }
 
 interface Chapter {
@@ -170,6 +181,56 @@ function Highlighted({ text, terms }: { text: string; terms: string[] }) {
   return <>{parts.map((part, index) => (index % 2 === 1 ? <mark key={index}>{part}</mark> : part))}</>;
 }
 
+// A quoted passage's line breaks are where the source happened to wrap, not
+// the author's: PDF text extraction breaks at every line end and around each
+// sub/superscript glyph (so an equation comes out one symbol per line), and a
+// selection across rendered markdown picks up its block breaks. A card reads
+// it as one flowing run instead.
+function flowText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+// "$$tex$$" or "$tex$" — how deepdive/selectionText.ts stores each equation
+// in a dive highlight's text.
+const TEX_SPAN = /\$\$([^$]+?)\$\$|\$([^$]+?)\$/g;
+
+function renderTex(tex: string): string | null {
+  try {
+    return katex.renderToString(tex, { throwOnError: true, displayMode: false });
+  } catch {
+    return null;
+  }
+}
+
+// Like Highlighted, but renders each "$tex$" span with KaTeX (inline, to
+// flow with the card's text). One that doesn't parse stays as written.
+function WithMath({ text, terms }: { text: string; terms: string[] }) {
+  const parts = useMemo(() => {
+    const result: ({ text: string } | { html: string })[] = [];
+    let last = 0;
+    for (const match of text.matchAll(TEX_SPAN)) {
+      const html = renderTex(match[1] ?? match[2]);
+      if (html == null) continue;
+      if (match.index > last) result.push({ text: text.slice(last, match.index) });
+      result.push({ html });
+      last = match.index + match[0].length;
+    }
+    if (last < text.length) result.push({ text: text.slice(last) });
+    return result;
+  }, [text]);
+  return (
+    <>
+      {parts.map((part, index) =>
+        "html" in part ? (
+          <span key={index} className="annot-math" dangerouslySetInnerHTML={{ __html: part.html }} />
+        ) : (
+          <Highlighted key={index} text={part.text} terms={terms} />
+        ),
+      )}
+    </>
+  );
+}
+
 // Clamps `text` to `lines` lines, with a Show more/less toggle that only
 // appears when there's actually more to show. While a search term is inside
 // it, it shows everything (so the match isn't hidden) and hides the toggle.
@@ -178,11 +239,13 @@ function ClampedText({
   lines,
   text,
   terms,
+  math = false,
 }: {
   className: string;
   lines: number;
   text: string;
   terms: string[];
+  math?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -209,7 +272,7 @@ function ClampedText({
         className={`${className} annot-clamp${open ? " is-expanded" : ""}`}
         style={{ "--annot-clamp-lines": lines } as CSSProperties}
       >
-        <Highlighted text={text} terms={terms} />
+        {math ? <WithMath text={text} terms={terms} /> : <Highlighted text={text} terms={terms} />}
       </div>
       {overflowing && !forceExpanded ? (
         <button
@@ -378,14 +441,18 @@ function AnnotationCard({
   terms,
   showPage,
   pageLabels,
+  onJumpToSource,
 }: {
   row: AnnotationRow;
   terms: string[];
   showPage: boolean;
   pageLabels: string[] | null;
+  onJumpToSource: (ref: ResolvedRef) => void;
 }) {
   const editsText = Boolean(row.editsText);
   const [editing, setEditing] = useState(false);
+  const [showingSummary, setShowingSummary] = useState(false);
+  const pageLabel = useMemo(() => (pageNumber: number) => formatPageLabel(pageLabels, pageNumber), [pageLabels]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [copied, copy] = useCopyFeedback();
   const cardRef = useRef<HTMLElement>(null);
@@ -479,6 +546,21 @@ function AnnotationCard({
               Dive
             </button>
           ) : null}
+          {row.diveSummary ? (
+            <button
+              type="button"
+              className={`annot-dive-link${showingSummary ? " is-open" : ""}`}
+              title={showingSummary ? "Hide its dive summary" : "Show its dive summary"}
+              aria-expanded={showingSummary}
+              onClick={(event) => {
+                event.stopPropagation();
+                setShowingSummary((open) => !open);
+              }}
+            >
+              <FileText width={11} height={11} strokeWidth={2.25} aria-hidden="true" />
+              Summary
+            </button>
+          ) : null}
         </div>
 
         {row.context ? (
@@ -501,6 +583,7 @@ function AnnotationCard({
             lines={OWN_TEXT_KINDS.has(row.kind) ? 6 : 4}
             text={row.text}
             terms={terms}
+            math={row.kind === "dive"}
           />
         )}
 
@@ -509,6 +592,24 @@ function AnnotationCard({
         ) : row.comment ? (
           <div className="annot-card-comment">
             <ClampedText className="annot-card-comment-text" lines={4} text={row.comment} terms={terms} />
+          </div>
+        ) : null}
+
+        {showingSummary && row.diveSummary ? (
+          // Its citation chips jump to their own passages, not the card's.
+          <div className="annot-card-summary" onClick={(event) => event.stopPropagation()}>
+            {row.diveSummaryNewAnswers ? (
+              <p className="annot-card-summary-stale">
+                {row.diveSummaryNewAnswers} new answer{row.diveSummaryNewAnswers === 1 ? "" : "s"} since this summary —
+                update it from the dive.
+              </p>
+            ) : null}
+            <AnswerMarkdown
+              content={row.diveSummary.content}
+              sources={row.diveSummary.sources}
+              pageLabel={pageLabel}
+              onJump={onJumpToSource}
+            />
           </div>
         ) : null}
       </div>
@@ -808,6 +909,7 @@ function AnnotationsPanelBody({
   onEditFreetextText,
   onHoverHighlight,
   onOpenDiveFromHighlight,
+  onJumpToSource,
   onDeletePin,
   onEditPinComment,
   onOpenDiveHighlight,
@@ -833,7 +935,9 @@ function AnnotationsPanelBody({
       const kind: AnnotationKind =
         highlight.type === "freetext" ? "sticky" : highlight.type === "area" ? "area" : "highlight";
       const rect = highlight.position.boundingRect;
-      const text = highlight.content?.text?.trim();
+      const rawText = highlight.content?.text;
+      const text = rawText && (kind === "sticky" ? rawText.trim() : flowText(rawText));
+      const diveSummary = highlight.divePanelId ? panelById(panels, highlight.divePanelId)?.summary : undefined;
       return {
         id: highlight.id,
         kind,
@@ -857,6 +961,11 @@ function AnnotationsPanelBody({
           : { onEdit: (comment: string) => onEditHighlightComment(highlight, comment) }),
         onHover: (hovered: boolean) => onHoverHighlight(hovered ? highlight.id : null),
         onOpenDive: highlight.divePanelId ? () => onOpenDiveFromHighlight(highlight) : undefined,
+        diveSummary,
+        diveSummaryNewAnswers:
+          diveSummary && highlight.divePanelId
+            ? treeAnswerCount(panels, highlight.divePanelId) - diveSummary.turnCount
+            : undefined,
       };
     });
 
@@ -874,7 +983,7 @@ function AnnotationsPanelBody({
         top: anchorRect?.height ? anchorRect.y1 / anchorRect.height : 0,
         createdAt: highlight.createdAt,
         sourceIndex,
-        text: highlight.text,
+        text: flowText(highlight.text),
         comment: highlight.comment,
         color: highlight.highlightColor ?? HIGHLIGHT_COLOR_PRESETS[0],
         context: panelById(panels, highlight.panelId)?.label ?? "a deep dive",
@@ -895,7 +1004,7 @@ function AnnotationsPanelBody({
         top: 0,
         createdAt: pin.createdAt,
         sourceIndex,
-        text: pin.text,
+        text: flowText(pin.text),
         comment: pin.comment,
         isActive: false,
         onDelete: () => onDeletePin(pin.id),
@@ -1178,6 +1287,7 @@ function AnnotationsPanelBody({
                   terms={terms}
                   showPage={group.showPage}
                   pageLabels={pageLabels}
+                  onJumpToSource={onJumpToSource}
                 />
               ))}
             </section>

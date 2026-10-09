@@ -1,10 +1,10 @@
 import { useRef } from "react";
 import { BookA, ChevronRight } from "lucide-react";
 import { useFlippedPlacement, type AnchorRect } from "../deepdive/useFlippedPlacement";
-import { DefinitionText, SourceBadge } from "./GlossaryParts";
+import { GlossaryMeaning, OriginBadge } from "./GlossaryParts";
 import { lookupStatusText, refCountText } from "./format";
 import { termKey } from "./textIndex";
-import type { GlossaryEntry } from "./types";
+import type { GlossaryEntry, GlossaryRef } from "./types";
 
 const CARD_WIDTH = 340;
 const VIEWPORT_MARGIN = 8;
@@ -14,6 +14,8 @@ interface GlossaryHoverCardProps {
   matchedText: string; // the word(s) hovered — may be a related form of the term
   anchorRect: AnchorRect;
   onOpenInGlossary: (entryId: string) => void;
+  onJumpToRef: (ref: GlossaryRef) => void;
+  pageLabel: (pageNumber: number) => string;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
 }
@@ -25,6 +27,8 @@ export default function GlossaryHoverCard({
   matchedText,
   anchorRect,
   onOpenInGlossary,
+  onJumpToRef,
+  pageLabel,
   onPointerEnter,
   onPointerLeave,
 }: GlossaryHoverCardProps) {
@@ -33,7 +37,7 @@ export default function GlossaryHoverCard({
     ...anchorRect,
     left: Math.max(VIEWPORT_MARGIN, Math.min(anchorRect.left, window.innerWidth - CARD_WIDTH - VIEWPORT_MARGIN)),
   };
-  const placement = useFlippedPlacement(ref, anchor, [entry.definition, entry.status]);
+  const placement = useFlippedPlacement(ref, anchor, [entry.definition, entry.status, entry.origin]);
   const waiting = entry.status === "pending" || (entry.status === "streaming" && !entry.definition);
   // "entangled" marked for the entry "entanglement": say which term it is.
   const isOtherForm = termKey(matchedText) !== entry.key;
@@ -50,7 +54,7 @@ export default function GlossaryHoverCard({
       <div className="glossary-card-header">
         <BookA width={15} height={15} className="glossary-card-icon" />
         <span className="glossary-card-term">{entry.term}</span>
-        <SourceBadge source={entry.source} />
+        <OriginBadge origin={entry.origin} term={entry.term} />
       </div>
       {isOtherForm ? <p className="glossary-hover-form">Related form: “{matchedText}”</p> : null}
 
@@ -62,7 +66,7 @@ export default function GlossaryHoverCard({
           {lookupStatusText(entry)}
         </p>
       ) : (
-        <DefinitionText text={entry.definition} streaming={entry.status === "streaming"} />
+        <GlossaryMeaning entry={entry} pageLabel={pageLabel} onJumpToRef={onJumpToRef} />
       )}
 
       <div className="glossary-card-footer">

@@ -2,10 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createProvider } from "./index.js";
 
-test("anthropic-cli needs no API key", () => {
-  assert.doesNotThrow(() => createProvider("anthropic-cli", { model: "claude-sonnet-5" }));
-});
-
 test("anthropic requires ANTHROPIC_API_KEY", () => {
   const prev = process.env.ANTHROPIC_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;

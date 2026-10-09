@@ -127,3 +127,39 @@ test("a stream that opens fine but then never sends data or closes times out", a
     /Gemini API request timed out after 20ms/
   );
 });
+
+test("sends maxOutputTokens and reports the final usage, thinking included", async () => {
+  const capture = {};
+  const events = [
+    { candidates: [{ content: { parts: [{ text: "a" }] } }], usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 1 } },
+    {
+      candidates: [{ content: { parts: [{ text: "b" }] } }],
+      usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 20, thoughtsTokenCount: 100, cachedContentTokenCount: 10 },
+    },
+  ];
+  const provider = createGoogleProvider({
+    apiKey: "g",
+    model: "gemini-3-pro",
+    maxTokens: 700,
+    fetchImpl: fakeFetch(capture, () => new Response(events.map((e) => `data: ${JSON.stringify(e)}`).join("\n\n") + "\n\n")),
+  });
+  const usages = [];
+  await provider.streamReply({ system: "S", messages: [{ role: "user", content: "p" }], onText: () => {}, onUsage: (u) => usages.push(u) });
+  assert.deepEqual(JSON.parse(capture.opts.body).generationConfig, { maxOutputTokens: 700 + 8192 });
+  assert.deepEqual(usages, [{ inputTokens: 50, cachedInputTokens: 10, outputTokens: 120 }]);
+});
+
+test("sends every image a message carries as inlineData parts", async () => {
+  const capture = {};
+  await createGoogleProvider({
+    apiKey: "g",
+    model: "gemini-3-pro",
+    fetchImpl: fakeFetch(capture, () => new Response("", { status: 200 })),
+  }).streamReply({
+    system: "S",
+    messages: [{ role: "user", content: "q", images: [{ mediaType: "image/jpeg", data: "A" }, { mediaType: "image/png", data: "B" }] }],
+    onText: () => {},
+  });
+  const parts = JSON.parse(capture.opts.body).contents[0].parts;
+  assert.deepEqual(parts, [{ text: "q" }, { inlineData: { mimeType: "image/jpeg", data: "A" } }, { inlineData: { mimeType: "image/png", data: "B" } }]);
+});

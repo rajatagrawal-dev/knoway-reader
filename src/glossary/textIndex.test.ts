@@ -5,6 +5,7 @@ import {
   buildTermMatcher,
   buildTextIndex,
   cleanTerm,
+  findDefiningMatch,
   findRelatedMatches,
   findTermMarksOnPage,
   findTermMatches,
@@ -177,6 +178,24 @@ test("excerpts prefer where the term is defined, and the reader's own page", () 
     selectExcerpts(matches, 4, 2).map((m) => m.page.pageNumber),
     [2, 4],
   );
+});
+
+test("the defining match is the one whose wording defines the term, wherever the reader is", () => {
+  const index = buildTextIndex([
+    page(1, [["The qubit is measured twice.", 100, 200]]),
+    page(2, [["A qubit is a two-level quantum system.", 100, 200]]),
+    page(3, [["A two-level system known as a qubit.", 100, 200]]),
+  ]);
+  const defining = findDefiningMatch(findTermMatches(index, "qubit"));
+  assert.equal(defining?.page.pageNumber, 3);
+});
+
+test("no defining match when no excerpt reads like a definition", () => {
+  const index = buildTextIndex([
+    page(1, [["The qubit is measured twice.", 100, 200]]),
+    page(2, [["This gate is a qubit rotation.", 100, 200]]),
+  ]);
+  assert.equal(findDefiningMatch(findTermMatches(index, "qubit")), undefined);
 });
 
 test("excerpts skip near-duplicates from the same stretch of a page", () => {

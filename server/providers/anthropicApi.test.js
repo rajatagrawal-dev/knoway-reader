@@ -117,3 +117,89 @@ test("a stalled connection times out instead of hanging forever", async () => {
     /Anthropic API request timed out after 20ms/
   );
 });
+
+test("sends the role's output cap and reports token usage from the stream", async () => {
+  const capture = {};
+  const events = [
+    { type: "message_start", message: { usage: { input_tokens: 1200, cache_read_input_tokens: 800, output_tokens: 1 } } },
+    { type: "content_block_delta", delta: { type: "text_delta", text: "Hi" } },
+    { type: "message_delta", usage: { output_tokens: 42 } },
+    { type: "message_stop" },
+  ];
+  const provider = createAnthropicApiProvider({
+    apiKey: "sk-ant-test",
+    model: "claude-sonnet-5",
+    maxTokens: 700,
+    fetchImpl: fakeFetch(capture, () => new Response(events.map((e) => `data: ${JSON.stringify(e)}`).join("\n\n") + "\n\n")),
+  });
+  const usages = [];
+  await provider.streamReply({ system: "SYS", messages: [{ role: "user", content: "hi" }], onText: () => {}, onUsage: (u) => usages.push(u) });
+  assert.equal(JSON.parse(capture.opts.body).max_tokens, 700);
+  assert.deepEqual(usages, [{ inputTokens: 2000, cachedInputTokens: 800, outputTokens: 42 }]);
+});
+
+test("complete reports token usage", async () => {
+  const provider = createAnthropicApiProvider({
+    apiKey: "sk-ant-test",
+    model: "claude-haiku-4-5-20251001",
+    fetchImpl: fakeFetch({}, () =>
+      Response.json({ content: [{ type: "text", text: "ok" }], usage: { input_tokens: 30, output_tokens: 5 } }),
+    ),
+  });
+  const usages = [];
+  assert.equal(await provider.complete({ system: "S", prompt: "p", onUsage: (u) => usages.push(u) }), "ok");
+  assert.deepEqual(usages, [{ inputTokens: 30, cachedInputTokens: 0, outputTokens: 5 }]);
+});
+
+test("a long system prompt is marked for prompt caching; a short one is sent as is", async () => {
+  const bodies = [];
+  const provider = createAnthropicApiProvider({
+    apiKey: "k",
+    model: "claude-sonnet-5",
+    fetchImpl: async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body));
+      return Response.json({ content: [{ type: "text", text: "ok" }] });
+    },
+  });
+  await provider.complete({ system: "short", prompt: "p" });
+  await provider.complete({ system: "x".repeat(5000), prompt: "p" });
+  assert.equal(bodies[0].system, "short");
+  assert.deepEqual(bodies[1].system, [{ type: "text", text: "x".repeat(5000), cache_control: { type: "ephemeral" } }]);
+});
+
+test("sends every image a message carries: a dive's screenshot and added regions", async () => {
+  const capture = {};
+  const provider = createAnthropicApiProvider({
+    apiKey: "k",
+    model: "m",
+    fetchImpl: fakeFetch(capture, () => new Response("data: {\"type\":\"message_stop\"}\n\n", { status: 200 })),
+  });
+  await provider.streamReply({
+    system: "S",
+    messages: [{ role: "user", content: "q", image: { mediaType: "image/png", data: "A" }, images: [{ mediaType: "image/jpeg", data: "B" }] }],
+    onText: () => {},
+  });
+  const content = JSON.parse(capture.opts.body).messages[0].content;
+  assert.deepEqual(content.map((block) => block.type), ["text", "image", "image"]);
+  assert.deepEqual(content.slice(1).map((block) => block.source.data), ["A", "B"]);
+});
+
+test("a system suffix goes as a second block, and only the first is cached", async () => {
+  const bodies = [];
+  const provider = createAnthropicApiProvider({
+    apiKey: "k",
+    model: "claude-sonnet-5",
+    fetchImpl: async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body));
+      return new Response("data: {\"type\":\"message_stop\"}\n\n", { status: 200 });
+    },
+  });
+  assert.equal(provider.supportsSystemSuffix, true);
+  await provider.streamReply({ system: "x".repeat(5000), systemSuffix: "More sources", messages: [{ role: "user", content: "q" }] });
+  await provider.streamReply({ system: "short", systemSuffix: "More", messages: [{ role: "user", content: "q" }] });
+  assert.deepEqual(bodies[0].system, [
+    { type: "text", text: "x".repeat(5000), cache_control: { type: "ephemeral" } },
+    { type: "text", text: "More sources" },
+  ]);
+  assert.deepEqual(bodies[1].system, [{ type: "text", text: "short" }, { type: "text", text: "More" }]);
+});

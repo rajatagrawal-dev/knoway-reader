@@ -1,13 +1,13 @@
-import { extractPageTextItems } from "react-pdf-highlighter-plus";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { streamGlossaryDefinition } from "../deepdive/api";
+import { fetchGlossaryReference, streamGlossaryDefinition } from "../deepdive/api";
 import { formatPageLabel } from "../pageLabels";
-import { buildGlossaryPrompt, buildGlossarySystem, type GlossaryExcerpt } from "./prompts";
+import { getTextIndex } from "../text/documentText";
+import { buildGlossaryPrompt, buildGlossarySystem, referenceCandidates, type GlossaryExcerpt } from "./prompts";
 import { parseGlossaryReply } from "./reply";
 import type { GlossaryStore } from "./store";
 import {
-  buildTextIndex,
   cleanTerm,
+  findDefiningMatch,
   findRelatedMatches,
   findTermMatches,
   matchId,
@@ -16,7 +16,6 @@ import {
   selectExcerpts,
   snippetAround,
   termKey,
-  type DocumentTextIndex,
   type TermMatch,
 } from "./textIndex";
 import type { GlossaryEntry, GlossaryRef } from "./types";
@@ -24,7 +23,10 @@ import type { GlossaryEntry, GlossaryRef } from "./types";
 // A lookup finds the term's references locally (fast, exact — shown before
 // the model has said anything), then sends the model only a handful of
 // excerpts to write the definition from, keeping the prompt small and the
-// definition grounded in this document.
+// definition grounded in this document. Meanwhile a dictionary and an
+// encyclopedia are looked up on the web (server/reference.js); their
+// entries go into the same, single model call, which says which of them
+// (if any) matches the document's sense — that one is shown alongside.
 
 const MAX_STORED_REFS = 200;
 const MAX_EXCERPTS = 10;
@@ -32,19 +34,14 @@ const EXCERPT_RADIUS = 220; // chars either side of the term, per excerpt
 const SNIPPET_RADIUS = 70; // chars either side, per reference in the panel
 const MAX_ALIASES = 5;
 const FALLBACK_PAGE_CHARS = 3000;
+// How much longer the model call may wait for the web lookup once the
+// excerpts are ready (the lookup runs during the document search too, so
+// it gets that time on top). Uncached lookups take up to about 2s. A
+// lookup that misses it just leaves the reference out.
+const REFERENCE_WAIT_MS = 2000;
 
-const indexCache = new WeakMap<PDFDocumentProxy, Promise<DocumentTextIndex>>();
-
-// Extracting every page's text takes a while on a long book, so App starts
-// this as soon as a document opens; lookups then usually find it ready.
-export function getTextIndex(pdfDocument: PDFDocumentProxy): Promise<DocumentTextIndex> {
-  let index = indexCache.get(pdfDocument);
-  if (!index) {
-    index = extractPageTextItems(pdfDocument).then(buildTextIndex);
-    index.catch(() => indexCache.delete(pdfDocument));
-    indexCache.set(pdfDocument, index);
-  }
-  return index;
+function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([promise, new Promise<null>((resolve) => window.setTimeout(() => resolve(null), ms))]);
 }
 
 export interface GlossaryJobContext {
@@ -128,9 +125,20 @@ export async function runGlossaryJob(store: GlossaryStore, entryId: string, cont
 
   store.update(
     entryId,
-    { status: "pending", error: undefined, definition: "", source: undefined, definedRefId: undefined },
+    {
+      status: "pending",
+      error: undefined,
+      definition: "",
+      source: undefined,
+      origin: undefined,
+      literal: undefined,
+      reference: undefined,
+      definedRefId: undefined,
+    },
     { persist: false },
   );
+
+  const referenceLookup = fetchGlossaryReference(entry.term, signal);
 
   try {
     const index = await getTextIndex(context.pdfDocument);
@@ -142,11 +150,12 @@ export async function runGlossaryJob(store: GlossaryStore, entryId: string, cont
     // the passage that defines a term often uses one of them.
     const candidates = mergeMatches(matches, findRelatedMatches(index, entry.term));
     const chosen = selectExcerpts(candidates, entry.pageNumber, MAX_EXCERPTS);
+    const defining = findDefiningMatch(chosen);
     const excerpts: GlossaryExcerpt[] = chosen.map((match, i) => ({
       label: `S${i + 1}`,
       pageLabel: formatPageLabel(context.pageLabels, match.page.pageNumber),
       text: excerptText(match),
-      isSelection: match.page.pageNumber === entry.pageNumber,
+      isDefinition: match === defining,
     }));
     // The term wasn't found on the page it was selected from (a text-layer
     // quirk, or a selection spanning odd characters) — send that page as-is
@@ -158,21 +167,28 @@ export async function runGlossaryJob(store: GlossaryStore, entryId: string, cont
           label: `S${excerpts.length + 1}`,
           pageLabel: formatPageLabel(context.pageLabels, entry.pageNumber),
           text: page.text.slice(0, FALLBACK_PAGE_CHARS),
-          isSelection: true,
+          isDefinition: false,
         });
       }
     }
+
+    const references = referenceCandidates(await settleWithin(referenceLookup, REFERENCE_WAIT_MS));
+    if (signal.aborted) return;
 
     store.update(entryId, { status: "streaming" }, { persist: false });
     let raw = "";
     const full = await streamGlossaryDefinition({
       system: buildGlossarySystem(context.fileName),
-      prompt: buildGlossaryPrompt(entry.term, excerpts),
+      prompt: buildGlossaryPrompt(entry.term, excerpts, references),
       signal,
       onText: (chunk) => {
         raw += chunk;
         const parsed = parseGlossaryReply(raw);
-        store.update(entryId, { definition: parsed.definition, source: parsed.source }, { persist: false });
+        store.update(
+          entryId,
+          { definition: parsed.definition, source: parsed.source, origin: parsed.origin },
+          { persist: false },
+        );
       },
     });
     if (signal.aborted) return;
@@ -193,6 +209,9 @@ export async function runGlossaryJob(store: GlossaryStore, entryId: string, cont
       status: "done",
       definition: parsed.definition,
       source: parsed.source,
+      origin: parsed.origin,
+      literal: parsed.literal,
+      reference: references.find((candidate) => candidate.label === parsed.reference)?.reference,
       aliases,
       refs: toRefs(matches, definedMatch),
       refCount: matches.length,

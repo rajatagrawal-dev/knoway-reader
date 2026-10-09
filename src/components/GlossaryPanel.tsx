@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, RotateCw, Star, Trash2 } from "lucide-react";
 import { useGlossaryEntries, type GlossaryStore } from "../glossary/store";
-import { DefinitionText, SourceBadge } from "../glossary/GlossaryParts";
+import { DefinitionText, GlossaryMeaning, OriginBadge } from "../glossary/GlossaryParts";
 import { lookupStatusText, refCountText } from "../glossary/format";
 import type { GlossaryEntry, GlossaryRef } from "../glossary/types";
 import { formatPageLabel } from "../pageLabels";
@@ -93,9 +93,9 @@ function GlossaryEntryItem({
   onDelete: () => void;
   itemRef: (element: HTMLDivElement | null) => void;
 }) {
+  const [showRefs, setShowRefs] = useState(false);
   const [showAllRefs, setShowAllRefs] = useState(false);
   const busy = entry.status === "pending" || entry.status === "streaming";
-  const definitionRef = entry.definedRefId ? entry.refs.find((ref) => ref.id === entry.definedRefId) : undefined;
   const visibleRefs = showAllRefs ? entry.refs : entry.refs.slice(0, INITIAL_REFS);
 
   return (
@@ -104,7 +104,7 @@ function GlossaryEntryItem({
         <button type="button" className="glossary-entry-head" onClick={onToggle} aria-expanded={expanded}>
           {expanded ? <ChevronDown width={13} height={13} /> : <ChevronRight width={13} height={13} />}
           <span className="glossary-entry-term">{entry.term}</span>
-          <SourceBadge source={entry.source} />
+          <OriginBadge origin={entry.origin} term={entry.term} />
         </button>
         <div className="sidebar-item-actions">
           <button
@@ -142,6 +142,12 @@ function GlossaryEntryItem({
             <span className="glossary-spinner" aria-hidden="true" />
             {lookupStatusText(entry)}
           </p>
+        ) : expanded ? (
+          <GlossaryMeaning
+            entry={entry}
+            pageLabel={(pageNumber) => formatPageLabel(pageLabels, pageNumber)}
+            onJumpToRef={onJumpToRef}
+          />
         ) : (
           <DefinitionText text={entry.definition} streaming={entry.status === "streaming"} />
         )}
@@ -152,17 +158,25 @@ function GlossaryEntryItem({
           {entry.aliases.length > 0 ? (
             <p className="glossary-entry-aliases">Also: {entry.aliases.join(", ")}</p>
           ) : null}
-          {definitionRef ? (
-            <button type="button" className="glossary-card-link" onClick={() => onJumpToRef(definitionRef)}>
-              <Star width={11} height={11} fill="currentColor" /> Defined on p.{" "}
-              {formatPageLabel(pageLabels, definitionRef.pageNumber)}
-            </button>
-          ) : null}
 
-          <h3 className="glossary-refs-heading">
-            {entry.refCount === 0 && !busy ? "No references found" : refCountText(entry.refCount)}
-          </h3>
           {entry.refs.length > 0 ? (
+            <h3 className="glossary-refs-heading">
+              <button
+                type="button"
+                className="glossary-refs-toggle"
+                onClick={() => setShowRefs((value) => !value)}
+                aria-expanded={showRefs}
+              >
+                {showRefs ? <ChevronDown width={12} height={12} /> : <ChevronRight width={12} height={12} />}
+                {refCountText(entry.refCount)}
+              </button>
+            </h3>
+          ) : (
+            <h3 className="glossary-refs-heading">
+              {entry.refCount === 0 && !busy ? "No references found" : refCountText(entry.refCount)}
+            </h3>
+          )}
+          {showRefs && entry.refs.length > 0 ? (
             <div className="glossary-refs">
               {visibleRefs.map((ref) => (
                 <RefRow
@@ -176,12 +190,12 @@ function GlossaryEntryItem({
               ))}
             </div>
           ) : null}
-          {entry.refs.length > INITIAL_REFS ? (
+          {showRefs && entry.refs.length > INITIAL_REFS ? (
             <button type="button" className="glossary-card-link" onClick={() => setShowAllRefs((value) => !value)}>
               {showAllRefs ? "Show fewer" : `Show all ${entry.refs.length}`}
             </button>
           ) : null}
-          {showAllRefs && entry.refCount > entry.refs.length ? (
+          {showRefs && showAllRefs && entry.refCount > entry.refs.length ? (
             <p className="glossary-refs-note">
               Showing the first {entry.refs.length} of {entry.refCount}.
             </p>
@@ -202,7 +216,10 @@ export default function GlossaryPanel({
   marksVisible,
   onMarksVisibleChange,
 }: GlossaryPanelProps) {
-  const entries = useGlossaryEntries(store);
+  const allEntries = useGlossaryEntries(store);
+  // Symbols looked up as notation (kind "symbol", src/notation) stay stored
+  // but aren't shown: notation lookups are switched off for now.
+  const entries = useMemo(() => allEntries.filter((entry) => entry.kind !== "symbol"), [allEntries]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -226,6 +243,7 @@ export default function GlossaryPanel({
           (entry) =>
             entry.term.toLowerCase().includes(needle) ||
             entry.aliases.some((alias) => alias.toLowerCase().includes(needle)) ||
+            (entry.literal?.toLowerCase().includes(needle) ?? false) ||
             entry.definition.toLowerCase().includes(needle),
         )
       : entries;

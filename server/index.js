@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { buildApp } from "./app.js";
 import { createDiveModels } from "./models.js";
+import { createReferenceLookup } from "./reference.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,13 +18,13 @@ for (const candidate of [path.join(__dirname, ".env"), path.join(__dirname, ".."
     process.loadEnvFile(candidate);
     break;
   } catch {
-    // try the next candidate — fine if neither exists, the CLI provider needs no vars
+    // try the next candidate — fine if neither exists; a provider missing its key fails with a clear error
   }
 }
 
 const PORT = process.env.PORT || 4300;
 
-const app = buildApp({ models: createDiveModels() });
+const app = buildApp({ models: createDiveModels(), lookupReference: createReferenceLookup() });
 
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "..", "dist")));

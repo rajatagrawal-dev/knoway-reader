@@ -1,10 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { keyForFile } from "../deepdive/store";
 import type { GlossaryEntry } from "./types";
-
-export function glossaryKeyForFile(file: File): string {
-  return keyForFile("pdf-glossary", file);
-}
 
 // Glossary entries live outside React state, in a subscribable store: the
 // definition card is rendered inside react-pdf-highlighter's selection tip,
@@ -13,7 +8,7 @@ export function glossaryKeyForFile(file: File): string {
 // show the definition streaming in. The sidebar panel reads the same store.
 export class GlossaryStore {
   private entries: GlossaryEntry[] = [];
-  private storageKey: string | null = null;
+  private persist: ((entries: GlossaryEntry[]) => void) | null = null;
   private listeners = new Set<() => void>();
 
   subscribe = (listener: () => void) => {
@@ -25,15 +20,10 @@ export class GlossaryStore {
 
   getSnapshot = () => this.entries;
 
-  load(storageKey: string) {
-    this.storageKey = storageKey;
-    let loaded: GlossaryEntry[] = [];
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) loaded = JSON.parse(raw) as GlossaryEntry[];
-    } catch {
-      loaded = [];
-    }
+  // `persist` saves the entries for the document just loaded; the store
+  // calls it on every settled change.
+  load(loaded: GlossaryEntry[], persist: (entries: GlossaryEntry[]) => void) {
+    this.persist = persist;
     // A lookup still running when the app closed can't resume; offer a retry.
     this.entries = loaded.map((entry) =>
       entry.status === "pending" || entry.status === "streaming"
@@ -70,13 +60,7 @@ export class GlossaryStore {
   }
 
   private commit() {
-    if (this.storageKey) {
-      try {
-        localStorage.setItem(this.storageKey, JSON.stringify(this.entries));
-      } catch {
-        // Over quota: keep working in memory rather than failing the lookup.
-      }
-    }
+    this.persist?.(this.entries);
     this.emit();
   }
 

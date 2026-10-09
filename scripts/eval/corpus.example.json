@@ -1,0 +1,24 @@
+{
+  "documents": [
+    {
+      "pdf": "../../eval-corpus/quantum-notes.pdf",
+      "questions": [
+        {
+          "id": "define-bell",
+          "question": "How does the text define a Bell state?",
+          "goldPages": [42]
+        },
+        {
+          "id": "dive-cnot",
+          "selection": "followed by a CNOT gate, which entangles the pair",
+          "goldPages": [43]
+        },
+        {
+          "id": "off-topic",
+          "question": "What year was the author born?",
+          "notCovered": true
+        }
+      ]
+    }
+  ]
+}

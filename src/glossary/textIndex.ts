@@ -465,12 +465,12 @@ export function matchPosition(match: TermMatch): ScaledPosition | null {
 
 // Phrasings that introduce or define a term, checked just after ("X is…",
 // "X (Y) refers to…") and just before ("…known as X", "we call X") a match.
-// "X is …" is weak evidence on its own — books say "entanglement is a key
+// "X is a …" is weak evidence on its own — books say "entanglement is a key
 // element…" far more often than they define it — so it scores below an
 // explicit defining phrase anywhere in the same sentence ("we say that a
 // state … is an entangled state").
 const DEFINES_AFTER =
-  /^(?:\s*\([^)]{0,60}\))?\s*,?\s*(?:is|are|refers? to|means?|denotes?|describes?|represents?|stands? for|is defined as|is called|i\.e\.|that is)\b/;
+  /^(?:\s*\([^)]{0,60}\))?\s*,?\s*(?:(?:is|are)\s+(?:an?|the)|refers? to|means?|denotes?|describes?|represents?|stands? for|is defined as|is called|i\.e\.|that is)\b/;
 const DEFINES_BEFORE =
   /(?:called|known as|termed|named|defined? as|definition of|we (?:call|say)|so-called|the (?:notion|concept|term) of|denoted by)\s+(?:an?\s+|the\s+)?["']?$/;
 const DEFINING_SENTENCE =
@@ -492,16 +492,43 @@ function sentenceAround(match: TermMatch): { before: string; after: string } {
   return { before, after };
 }
 
+// How much a match's sentence reads as defining or introducing the term,
+// from its phrasing alone.
+function definitionScore(match: TermMatch): number {
+  const { before, after } = sentenceAround(match);
+  let score = 0;
+  if (DEFINING_SENTENCE.test(`${before} ${after}`)) score += 5;
+  if (DEFINES_BEFORE.test(before.slice(-50))) score += 4;
+  if (DEFINES_AFTER.test(after.slice(0, 60))) score += 3;
+  if (CLASSIFIES_BEFORE.test(before.slice(-20))) score += 2;
+  return score;
+}
+
+// A defining phrase before, after or around the match; "…is a X" alone
+// isn't enough.
+const DEFINITION_MIN_SCORE = 3;
+
+// The match (of `matches`, in document order) that most likely defines the
+// term — the earliest on a tie — or undefined if none reads like a
+// definition.
+export function findDefiningMatch(matches: TermMatch[]): TermMatch | undefined {
+  let best: TermMatch | undefined;
+  let bestScore = DEFINITION_MIN_SCORE - 1;
+  for (const match of matches) {
+    const score = definitionScore(match);
+    if (score > bestScore) {
+      best = match;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 const EXCERPT_MIN_GAP = 400; // chars between two excerpts from one page
 
 export function selectExcerpts(matches: TermMatch[], selectionPage: number, max: number): TermMatch[] {
   const scored = matches.map((match, order) => {
-    const { before, after } = sentenceAround(match);
-    let score = 0;
-    if (DEFINING_SENTENCE.test(`${before} ${after}`)) score += 5;
-    if (DEFINES_BEFORE.test(before.slice(-50))) score += 4;
-    if (DEFINES_AFTER.test(after.slice(0, 60))) score += 3;
-    if (CLASSIFIES_BEFORE.test(before.slice(-20))) score += 2;
+    let score = definitionScore(match);
     if (!match.related) score += 1;
     if (match.page.pageNumber === selectionPage) score += 3;
     if (order === 0) score += 2;

@@ -4,17 +4,16 @@ import type { PdfHighlighterUtils } from "react-pdf-highlighter-plus";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { AnchorRect } from "../deepdive/useFlippedPlacement";
 import GlossaryHoverCard from "./GlossaryHoverCard";
-import { getTextIndex } from "./job";
+import { getTextIndex } from "../text/documentText";
 import { useGlossaryEntries, type GlossaryStore } from "./store";
 import {
   buildTermMatcher,
   findTermMarksOnPage,
-  matchPosition,
   type DocumentTextIndex,
-  type IndexedPage,
-  type PageTermMark,
   type TermMatcher,
 } from "./textIndex";
+import type { GlossaryRef } from "./types";
+import { estimateBoxes, measureBoxes, runTextNodes, type Box } from "../text/pageBoxes";
 
 // Dotted underlines under every occurrence of a glossary term (and its
 // related forms — "entangled" for "entanglement") in the PDF, with the
@@ -32,82 +31,10 @@ const LAYER_CLASS = "glossary-marks-layer";
 const SHOW_DELAY_MS = 250;
 const HIDE_DELAY_MS = 200;
 
-interface Box {
-  left: number; // fractions of the page's width/height
-  top: number;
-  width: number;
-  height: number;
-}
-
 interface Mark {
   entryId: string;
   text: string;
   boxes: Box[];
-}
-
-// pdf.js's text layer has one span per text run, in the same order as the
-// runs the index was built from (minus the ones it dropped, e.g. running
-// heads) — pair each indexed run with its span's text node.
-function runTextNodes(pageDiv: HTMLElement, page: IndexedPage): (Text | null)[] {
-  const spans = [...pageDiv.querySelectorAll<HTMLElement>(".textLayer span")].filter((span) => !span.firstElementChild);
-  let next = 0;
-  return page.items.map((item) => {
-    for (let k = next; k < Math.min(spans.length, next + 40); k += 1) {
-      if (spans[k].textContent === item.text) {
-        next = k + 1;
-        const node = spans[k].firstChild;
-        return node instanceof Text ? node : null;
-      }
-    }
-    return null;
-  });
-}
-
-// Where the matched characters are drawn, measured from the text layer —
-// the same geometry the browser uses to paint a selection of them. The
-// index's own rects only interpolate across a run by character count,
-// which drifts by a character or two within a long run of proportional
-// text. Null if any run's span can't be found.
-function measureBoxes(match: PageTermMark, nodes: (Text | null)[], pageRect: DOMRect): Box[] | null {
-  const { page } = match;
-  const spans = new Map<number, [number, number]>();
-  for (let i = match.start; i < match.end; i += 1) {
-    const run = page.charItem[i];
-    if (run < 0) continue;
-    const offset = page.charOffset[i];
-    const span = spans.get(run);
-    if (!span) spans.set(run, [offset, offset + 1]);
-    else span[1] = Math.max(span[1], offset + 1);
-  }
-  const boxes: Box[] = [];
-  const range = document.createRange();
-  for (const [run, [from, to]] of spans) {
-    const node = nodes[run];
-    if (!node || to > node.length) return null;
-    range.setStart(node, from);
-    range.setEnd(node, to);
-    for (const rect of range.getClientRects()) {
-      if (rect.width <= 0 || rect.height <= 0) continue;
-      boxes.push({
-        left: (rect.left - pageRect.left) / pageRect.width,
-        top: (rect.top - pageRect.top) / pageRect.height,
-        width: rect.width / pageRect.width,
-        height: rect.height / pageRect.height,
-      });
-    }
-  }
-  return boxes.length > 0 ? boxes : null;
-}
-
-// Fallback when the text layer can't be measured: the index's own rects.
-function estimateBoxes(match: PageTermMark): Box[] {
-  const position = matchPosition(match);
-  return (position?.rects ?? []).map((r) => ({
-    left: r.x1 / r.width,
-    top: r.y1 / r.height,
-    width: (r.x2 - r.x1) / r.width,
-    height: (r.y2 - r.y1) / r.height,
-  }));
 }
 
 interface Hover {
@@ -133,9 +60,19 @@ interface GlossaryMarksProps {
   store: GlossaryStore;
   enabled: boolean;
   onOpenInGlossary: (entryId: string) => void;
+  onJumpToRef: (ref: GlossaryRef) => void;
+  pageLabel: (pageNumber: number) => string;
 }
 
-export default function GlossaryMarks({ pdfDocument, utilsRef, store, enabled, onOpenInGlossary }: GlossaryMarksProps) {
+export default function GlossaryMarks({
+  pdfDocument,
+  utilsRef,
+  store,
+  enabled,
+  onOpenInGlossary,
+  onJumpToRef,
+  pageLabel,
+}: GlossaryMarksProps) {
   const entries = useGlossaryEntries(store);
   const [index, setIndex] = useState<DocumentTextIndex | null>(null);
   const [viewer, setViewer] = useState<{ viewer: ViewerLike; bus: EventBusLike } | null>(null);
@@ -180,7 +117,8 @@ export default function GlossaryMarks({ pdfDocument, utilsRef, store, enabled, o
   // Rebuilt only when the set of terms changes, not on every definition
   // token streamed into an entry.
   const termsSignature = entries
-    .filter((entry) => entry.status !== "error")
+    // Symbols aren't marked: a lone letter like "n" occurs all over the text.
+    .filter((entry) => entry.status !== "error" && entry.kind !== "symbol")
     .map((entry) => `${entry.id}\u0000${entry.term}`)
     .join("\u0001");
   const terms = useMemo(
@@ -348,6 +286,12 @@ export default function GlossaryMarks({ pdfDocument, utilsRef, store, enabled, o
         setHover(null);
         onOpenInGlossary(entryId);
       }}
+      onJumpToRef={(ref) => {
+        pointerOnCard.current = false;
+        setHover(null);
+        onJumpToRef(ref);
+      }}
+      pageLabel={pageLabel}
       onPointerEnter={() => {
         pointerOnCard.current = true;
         window.clearTimeout(hideTimer.current);

@@ -22,6 +22,7 @@ export function createMuseSparkProvider({
   createClient,
   timeoutMs,
   reasoningEffort = DEFAULT_REASONING_EFFORT,
+  maxTokens,
 }) {
   return createOpenAiCompatibleProvider({
     apiKey,
@@ -31,5 +32,6 @@ export function createMuseSparkProvider({
     createClient,
     timeoutMs,
     reasoningEffort,
+    maxTokens,
   });
 }

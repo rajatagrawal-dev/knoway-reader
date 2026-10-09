@@ -7,6 +7,7 @@ import {
   TextHighlight,
   useHighlightContainerContext,
   usePdfHighlighterContext,
+  type ScaledPosition,
 } from "react-pdf-highlighter-plus";
 import { useNoteControl } from "./NoteControl";
 import HighlightToolbar from "./HighlightToolbar";
@@ -37,6 +38,9 @@ interface HighlightContainerProps {
     content: CommentedHighlight["content"],
     pageNumber: number,
   ) => void;
+  // A text or area highlight's content, added to the next question.
+  onAddToQuestion: (content: CommentedHighlight["content"], position: ScaledPosition) => void;
+  addToQuestionTitle: () => string;
   notesCollapsed: boolean;
 }
 
@@ -70,6 +74,8 @@ function AnnotationHighlight({
   onOpenDive,
   isDiveOpen,
   onStartDive,
+  onAddToQuestion,
+  addToQuestionTitle,
 }: HighlightContainerProps) {
   const {
     highlight,
@@ -101,6 +107,18 @@ function AnnotationHighlight({
         divePanelId={highlight.divePanelId}
         onOpenDive={onOpenDive}
         onStartDive={() => onStartDive(highlight.id, highlight.content, highlight.position.boundingRect.pageNumber)}
+        onAddToQuestion={
+          highlight.content?.text || highlight.content?.image
+            ? () =>
+                // The toolbar sees the highlight in on-screen (viewport)
+                // coordinates; a region is kept in page-relative ones.
+                onAddToQuestion(highlight.content, {
+                  boundingRect: viewportToScaled(highlight.position.boundingRect),
+                  rects: highlight.position.rects.map(viewportToScaled),
+                })
+            : undefined
+        }
+        addToQuestionTitle={addToQuestionTitle()}
         onDelete={() => deleteHighlight(highlight.id)}
         activeStyle={highlight.highlightStyle ?? "highlight"}
         onStyleChange={isText ? (highlightStyle) => editHighlight(highlight.id, { highlightStyle }) : undefined}
