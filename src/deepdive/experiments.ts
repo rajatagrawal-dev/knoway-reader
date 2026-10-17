@@ -87,7 +87,7 @@ export function contextStrategy(experiments: DiveExperiments): DiveContextStrate
   return { localWindow, linkedSources, rankingPriors, areaContext, nestedContext };
 }
 
-const STORAGE_KEY = "musereader-dive-experiments";
+const STORAGE_KEY = "knowayreader-dive-experiments";
 
 // Unknown keys are dropped and missing ones take their default, so a flag
 // added or removed later never breaks what was saved.

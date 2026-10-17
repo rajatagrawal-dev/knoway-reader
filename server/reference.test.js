@@ -145,7 +145,7 @@ test("the contact goes into the User-Agent", async () => {
     },
   });
   await lookup("x");
-  assert.match(headers["User-Agent"], /^MuseReader\/[\d.]+ \(https:\/\/example\.org\/me; /);
+  assert.match(headers["User-Agent"], /^KnowayReader\/[\d.]+ \(https:\/\/example\.org\/me; /);
 });
 
 test("cleanExtract never cuts a formula in half", () => {

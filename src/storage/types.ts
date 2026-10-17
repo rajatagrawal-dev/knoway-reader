@@ -1,4 +1,4 @@
-// Everything MuseReader keeps per document, behind one small interface with
+// Everything Knoway Reader keeps per document, behind one small interface with
 // two backends: plain files in the app data folder on desktop (desktop.ts)
 // and IndexedDB on the web (indexedDb.ts). See
 // docs/superpowers/specs/2026-09-27-grounded-study-roadmap.md §4.1.

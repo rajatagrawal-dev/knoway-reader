@@ -4,7 +4,7 @@ import type { DocDataKind, DocumentMeta, LibraryStorage } from "./types.ts";
 // app uses plain files instead (desktop.ts); this backend exists so the
 // browser build keeps working, and is kept deliberately small.
 
-const DB_NAME = "musereader";
+const DB_NAME = "knowayreader";
 const DB_VERSION = 1;
 const DOCUMENTS = "documents"; // DocumentMeta, keyed by docId
 const FILES = "files"; // PDF bytes, keyed by docId

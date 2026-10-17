@@ -56,8 +56,10 @@ export function readingProgress(doc: DocumentMeta): { label: string; fraction: n
 // what's rebuilt from them (the text cache, the cover).
 const NOTE_KINDS: DocDataKind[] = [...READER_DATA_KINDS];
 
+const NOTES_FORMAT = "knowayreader-notes";
+
 export interface NotesBackup {
-  format: "musereader-notes";
+  format: typeof NOTES_FORMAT;
   version: 1;
   exportedAt: string;
   documents: { meta: DocumentMeta; data: Partial<Record<DocDataKind, unknown>> }[];
@@ -74,7 +76,7 @@ export async function exportNotes(storage: LibraryStorage): Promise<NotesBackup>
     }
     documents.push({ meta, data });
   }
-  return { format: "musereader-notes", version: 1, exportedAt: new Date().toISOString(), documents };
+  return { format: NOTES_FORMAT, version: 1, exportedAt: new Date().toISOString(), documents };
 }
 
 export interface ImportSummary {
@@ -87,8 +89,8 @@ export interface ImportSummary {
 // yet is listed as missing its file until that PDF is imported.
 export async function importNotes(storage: LibraryStorage, backup: unknown): Promise<ImportSummary> {
   const parsed = backup as NotesBackup;
-  if (!parsed || parsed.format !== "musereader-notes" || !Array.isArray(parsed.documents)) {
-    throw new Error("This isn't a MuseReader notes backup.");
+  if (!parsed || parsed.format !== NOTES_FORMAT || !Array.isArray(parsed.documents)) {
+    throw new Error("This isn't a Knoway Reader notes backup.");
   }
   let missingFiles = 0;
   for (const { meta, data } of parsed.documents) {

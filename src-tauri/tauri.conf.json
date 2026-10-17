@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "musereader",
+  "productName": "Knoway Reader",
   "version": "0.1.0",
-  "identifier": "com.musereader.app",
+  "identifier": "com.knowayreader.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "MuseReader",
+        "title": "Knoway Reader",
         "width": 1440,
         "height": 900,
         "minWidth": 800,

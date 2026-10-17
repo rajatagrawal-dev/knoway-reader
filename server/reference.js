@@ -12,7 +12,7 @@ import { decodeEntities, htmlToText } from "./mathml.js";
 // URL). A lookup makes two or three requests, so set REFERENCE_CONTACT in
 // .env for anything beyond light use.
 function userAgent(contact) {
-  return `MuseReader/0.1 (${contact ? `${contact}; ` : ""}desktop PDF reader, glossary lookups)`;
+  return `KnowayReader/0.1 (${contact ? `${contact}; ` : ""}desktop PDF reader, glossary lookups)`;
 }
 const UPSTREAM_TIMEOUT_MS = 2500;
 // After a 429 without a Retry-After, per Wikimedia's guidance.

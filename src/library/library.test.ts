@@ -96,5 +96,5 @@ test("a notes backup round-trips, merges into existing notes, and waits for miss
   await importNotes(target, backup);
   assert.deepEqual(await target.getData(a.docId, "highlights"), [{ id: "h0" }, { id: "h1" }]);
 
-  await assert.rejects(importNotes(target, { something: "else" }), /isn't a MuseReader notes backup/);
+  await assert.rejects(importNotes(target, { something: "else" }), /isn't a Knoway Reader notes backup/);
 });

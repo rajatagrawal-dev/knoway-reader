@@ -139,7 +139,7 @@ export default function LibraryHome({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `musereader-notes-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.download = `knowayreader-notes-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     setNotice(`Exported notes for ${plural(backup.documents.length, "document")}.`);
@@ -202,7 +202,7 @@ export default function LibraryHome({
       onDrop={onDrop}
     >
       <header className="library-header">
-        <h1>MuseReader</h1>
+        <h1>Knoway Reader</h1>
         <div className="library-search">
           <Search width={15} height={15} aria-hidden="true" />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search your library" />

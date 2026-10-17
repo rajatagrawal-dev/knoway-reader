@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
 
-const THEME_STORAGE_KEY = "musereader-theme";
+const THEME_STORAGE_KEY = "knowayreader-theme";
 
 // A saved choice wins; otherwise follow the OS setting on first launch.
 function readInitialTheme(): Theme {

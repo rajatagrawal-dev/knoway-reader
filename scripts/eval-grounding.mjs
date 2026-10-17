@@ -43,7 +43,7 @@ try {
 
 // Inside the project, so the bundle's external packages (pdfjs-dist, the
 // provider SDKs) resolve from its node_modules.
-const outfile = path.resolve("node_modules/.cache/musereader-eval/grounding.mjs");
+const outfile = path.resolve("node_modules/.cache/knowayreader-eval/grounding.mjs");
 await build({
   entryPoints: ["scripts/eval/grounding.ts"],
   outfile,

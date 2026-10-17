@@ -71,7 +71,7 @@ pub fn run() {
           }
           Err(err) => {
             eprintln!(
-              "MuseReader: failed to start the Deep Dive server (is Node.js installed and on PATH?): {err}"
+              "Knoway Reader: failed to start the Deep Dive server (is Node.js installed and on PATH?): {err}"
             );
           }
         }
