@@ -4,7 +4,7 @@ export type Theme = "light" | "dark";
 
 const THEME_STORAGE_KEY = "knowayreader-theme";
 
-// A saved choice wins; otherwise follow the OS setting on first launch.
+// A saved choice wins; otherwise start in dark.
 function readInitialTheme(): Theme {
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY);
@@ -12,9 +12,9 @@ function readInitialTheme(): Theme {
       return saved;
     }
   } catch {
-    // Storage unavailable — fall through to the OS preference.
+    // Storage unavailable — fall through to the default.
   }
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return "dark";
 }
 
 // data-theme drives the app's own palette (index.css); .rphp-dark switches
@@ -31,7 +31,7 @@ export function applyTheme(theme: Theme) {
 applyTheme(readInitialTheme());
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(() => (document.documentElement.dataset.theme as Theme) ?? "light");
+  const [theme, setTheme] = useState<Theme>(() => (document.documentElement.dataset.theme as Theme) ?? "dark");
 
   useEffect(() => {
     applyTheme(theme);
