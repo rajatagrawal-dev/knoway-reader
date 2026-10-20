@@ -144,23 +144,6 @@ How the packaged app differs from the browser version:
   folder (on macOS, `~/Library/Application Support/com.knowayreader.app/library/`),
   one folder per document. The browser version uses IndexedDB instead.
 
-### Opening a downloaded release on macOS
-
-The app is not yet notarized by Apple. If you download a release instead of
-building it yourself, macOS will refuse to open it with this message:
-
-> "Knoway Reader" is damaged and can't be opened. You should move it to the Trash.
-
-The app isn't actually damaged. macOS shows this for unnotarized apps that were
-downloaded from the internet. To fix it, move the app to `/Applications` and
-then run this in Terminal to clear the quarantine flag:
-
-```bash
-xattr -c "/Applications/Knoway Reader.app"
-```
-
-After that, the app opens normally.
-
 ## Scripts
 
 | Command                  | What it does                                              |
