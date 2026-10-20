@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { MessageSquare } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { MessageSquare, Minimize2 } from "lucide-react";
 import {
   AreaHighlight,
   FreetextHighlight,
@@ -86,6 +86,13 @@ function AnnotationHighlight({
   } = useHighlightContainerContext<CommentedHighlight>();
 
   const { toggleEditInProgress } = usePdfHighlighterContext();
+
+  // The library only grows a sticky note a collapse/expand control once it's
+  // in "compact" mode — with notesCollapsed off, no note has one. This lets
+  // a single note opt into that mode on its own, independent of the global
+  // setting, so it can be minimized without collapsing every other note.
+  const [manuallyCollapsed, setManuallyCollapsed] = useState(false);
+  const compact = notesCollapsed || manuallyCollapsed;
 
   const commentControls = useNoteControl({
     comment: highlight.comment,
@@ -179,68 +186,86 @@ function AnnotationHighlight({
 
   if (highlight.type === "freetext") {
     const paper = resolveStickerPaper(highlight.backgroundColor);
+    const noteTop = highlight.position.boundingRect.top;
+    const noteRight = highlight.position.boundingRect.left + (highlight.position.boundingRect.width || 150);
     return anchor(
-      <FreetextHighlight
-        highlight={highlight}
-        isScrolledTo={isScrolledTo}
-        // The library only renders the style it's handed — it keeps none of
-        // its own — so the saved style has to be passed back in every render.
-        color={highlight.color ?? STICKER_INK_DEFAULT}
-        backgroundColor={paper}
-        fontSize={highlight.fontSize ?? "14px"}
-        fontFamily={highlight.fontFamily ?? "inherit"}
-        style={stickerStyle(paper)}
-        backgroundColorPresets={STICKER_PAPER_PRESETS}
-        backgroundColorNames={STICKER_PAPER_NAMES}
-        textColorPresets={STICKER_INK_PRESETS}
-        textColorNames={STICKER_INK_NAMES}
-        fontFamilyOptions={STICKER_FONTS}
-        onChange={(boundingRect) => {
-          editHighlight(highlight.id, {
-            position: {
-              boundingRect: viewportToScaled(boundingRect),
-              rects: [],
-            },
-          });
-          toggleEditInProgress(false);
-        }}
-        onTextChange={(newText) => {
-          // Keeps the note's box hugging its text as it's edited — otherwise
-          // it stays whatever fixed size it was created/resized at, however
-          // much shorter or longer the new text is.
-          const { width, height } = measureFreetextSize(newText, highlight.fontSize, highlight.fontFamily);
-          editHighlight(highlight.id, {
-            content: { text: newText },
-            position: {
-              boundingRect: viewportToScaled({ ...highlight.position.boundingRect, width, height }),
-              rects: [],
-            },
-          });
-        }}
-        onStyleChange={(style) => {
-          // Each change carries only the one property that changed; the
-          // others are left as-is rather than overwritten with undefined.
-          const fontSize = style.fontSize ?? highlight.fontSize;
-          const fontFamily = style.fontFamily ?? highlight.fontFamily;
-          const { width, height } = measureFreetextSize(highlight.content?.text ?? "", fontSize, fontFamily);
-          editHighlight(highlight.id, {
-            color: style.color ?? highlight.color,
-            backgroundColor: style.backgroundColor ?? highlight.backgroundColor,
-            fontSize,
-            fontFamily,
-            position: {
-              boundingRect: viewportToScaled({ ...highlight.position.boundingRect, width, height }),
-              rects: [],
-            },
-          });
-        }}
-        onEditStart={() => toggleEditInProgress(true)}
-        onEditEnd={() => toggleEditInProgress(false)}
-        onDelete={() => deleteHighlight(highlight.id)}
-        compact={notesCollapsed}
-        compactSize={28}
-        compactIcon={<MessageSquare width={15} height={15} />}
-      />,
+      <>
+        <FreetextHighlight
+          highlight={highlight}
+          isScrolledTo={isScrolledTo}
+          // The library only renders the style it's handed — it keeps none of
+          // its own — so the saved style has to be passed back in every render.
+          color={highlight.color ?? STICKER_INK_DEFAULT}
+          backgroundColor={paper}
+          fontSize={highlight.fontSize ?? "14px"}
+          fontFamily={highlight.fontFamily ?? "inherit"}
+          style={stickerStyle(paper)}
+          backgroundColorPresets={STICKER_PAPER_PRESETS}
+          backgroundColorNames={STICKER_PAPER_NAMES}
+          textColorPresets={STICKER_INK_PRESETS}
+          textColorNames={STICKER_INK_NAMES}
+          fontFamilyOptions={STICKER_FONTS}
+          onChange={(boundingRect) => {
+            editHighlight(highlight.id, {
+              position: {
+                boundingRect: viewportToScaled(boundingRect),
+                rects: [],
+              },
+            });
+            toggleEditInProgress(false);
+          }}
+          onTextChange={(newText) => {
+            // Keeps the note's box hugging its text as it's edited — otherwise
+            // it stays whatever fixed size it was created/resized at, however
+            // much shorter or longer the new text is.
+            const { width, height } = measureFreetextSize(newText, highlight.fontSize, highlight.fontFamily);
+            editHighlight(highlight.id, {
+              content: { text: newText },
+              position: {
+                boundingRect: viewportToScaled({ ...highlight.position.boundingRect, width, height }),
+                rects: [],
+              },
+            });
+          }}
+          onStyleChange={(style) => {
+            // Each change carries only the one property that changed; the
+            // others are left as-is rather than overwritten with undefined.
+            const fontSize = style.fontSize ?? highlight.fontSize;
+            const fontFamily = style.fontFamily ?? highlight.fontFamily;
+            const { width, height } = measureFreetextSize(highlight.content?.text ?? "", fontSize, fontFamily);
+            editHighlight(highlight.id, {
+              color: style.color ?? highlight.color,
+              backgroundColor: style.backgroundColor ?? highlight.backgroundColor,
+              fontSize,
+              fontFamily,
+              position: {
+                boundingRect: viewportToScaled({ ...highlight.position.boundingRect, width, height }),
+                rects: [],
+              },
+            });
+          }}
+          onEditStart={() => toggleEditInProgress(true)}
+          onEditEnd={() => toggleEditInProgress(false)}
+          onDelete={() => deleteHighlight(highlight.id)}
+          compact={compact}
+          compactSize={28}
+          compactIcon={<MessageSquare width={15} height={15} />}
+        />
+        {!compact && (
+          <button
+            type="button"
+            className="FreetextHighlight__pin-collapse"
+            style={{ top: noteTop, left: noteRight }}
+            title="Collapse note"
+            onClick={(event) => {
+              event.stopPropagation();
+              setManuallyCollapsed(true);
+            }}
+          >
+            <Minimize2 width={11} height={11} />
+          </button>
+        )}
+      </>,
     );
   }
 

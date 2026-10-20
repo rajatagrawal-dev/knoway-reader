@@ -2392,6 +2392,37 @@
   background: #fff;
 }
 
+/* Collapse-this-note pin: only rendered while a note has no built-in way to
+   collapse itself (compact mode off) — see HighlightContainer.tsx. Sits at
+   the note's top-right corner, independent of the global "collapse sticky
+   notes" setting, so one note can be minimized without affecting the rest. */
+.FreetextHighlight__pin-collapse {
+  position: absolute;
+  z-index: 32;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1.5px solid var(--rphp-bg, #fff);
+  border-radius: 50%;
+  background: var(--rphp-toolbar-bg, #1c1b18);
+  color: #efece5;
+  box-shadow: 0 1px 2px rgba(40, 32, 12, 0.25);
+  cursor: pointer;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.85);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.FreetextHighlight:hover ~ .FreetextHighlight__pin-collapse,
+.FreetextHighlight__pin-collapse:hover,
+.FreetextHighlight__pin-collapse:focus-visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 /* Pale paper swatches need a firmer rim to read against the white menu. */
 .FreetextHighlight .FreetextHighlight__color-menu-dot {
   border-color: rgba(0, 0, 0, 0.12);
