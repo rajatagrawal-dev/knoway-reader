@@ -1,11 +1,11 @@
 # Knoway Reader
 
-Knoway Reader is a PDF reader for studying dense documents: textbooks, papers,
-lecture notes. It does everything you'd expect for highlighting and note-taking,
-and adds an AI study layer. You can select a passage and "deep dive" into it,
-ask questions about the whole document, and build a glossary of its terms and
-notation. Answers are grounded in the document itself and cite the pages they
-draw on.
+Knoway Reader is a PDF and EPUB reader for studying dense documents: textbooks,
+papers, lecture notes. It does everything you'd expect for highlighting and
+note-taking, and adds an AI study layer. You can select a passage and "deep
+dive" into it, ask questions about the whole document, and build a glossary of
+its terms and notation. Answers are grounded in the document itself and cite
+the pages they draw on.
 
 It runs in the browser or as a native desktop app via [Tauri](https://tauri.app).
 So far it has only been tested on macOS. Tauri can also build it for Windows
@@ -14,8 +14,16 @@ and Linux, but those builds haven't been tried yet.
 ## Features
 
 ### Library
-- Import PDFs (**⌘O**). Each one's title, author, page count and cover are
-  read from the file, and importing the same PDF twice opens the existing entry.
+- Import PDFs and EPUBs (**⌘O**). Each one's title, author, page count and
+  cover are read from the file, and importing the same file twice opens the
+  existing entry.
+- An EPUB becomes a PDF when it's added: the browser lays it out (using the
+  book's own stylesheets) as a 6×9in paperback set in Literata. The result has real
+  text, the book's pictures, working links, and its table of contents as
+  bookmarks. Every feature below then works on it the same way it does on a PDF.
+  Known gaps: CJK text and emoji aren't drawn (the bundled fonts don't cover
+  them), small caps come out as ordinary letters, and right-to-left scripts
+  aren't laid out right to left.
 - "Continue reading" brings you back to where you left off.
 - Export and import all your notes as a single backup file.
 
@@ -161,6 +169,7 @@ How the packaged app differs from the browser version:
 
 ```
 src/            React + TypeScript frontend
+  epub/         EPUB import: unpacking, layout, and conversion to PDF
   deepdive/     Deep Dive panels, prompts and rendering
   ask/          Ask panel and question threads
   glossary/     Glossary lookups and definitions
@@ -187,4 +196,6 @@ Completions API (Groq, Together, Fireworks, and so on) can be added the way
 
 React, TypeScript, Vite, Express, Tauri,
 [react-pdf-highlighter-plus](https://www.npmjs.com/package/react-pdf-highlighter-plus)
-(patched via `patch-package`), pdf.js, KaTeX and Mermaid.
+(patched via `patch-package`), pdf.js, pdf-lib, fflate, KaTeX and Mermaid.
+EPUBs are set in [Literata](https://github.com/googlefonts/literata) and
+[DejaVu](https://dejavu-fonts.github.io) (both under open font licenses).

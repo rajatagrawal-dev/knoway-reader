@@ -44,7 +44,8 @@ import {
   rootPanelOf,
 } from "./deepdive/tree";
 import { getStorage } from "./storage";
-import { openDocument } from "./storage/documents";
+import { openDocument, titleFromFileName } from "./storage/documents";
+import { isEpub, pdfForEpub } from "./epub";
 import type { DocumentMeta } from "./storage/types";
 import LibraryHome from "./library/LibraryHome";
 import { pickTitle } from "./library/library";
@@ -357,7 +358,7 @@ export default function App() {
       const info = await readPdfInfoFromDocument(pdfDocument);
       const current = openMetaRef.current;
       if (cancelled || !current || current.docId !== meta.docId) return;
-      const fileTitle = current.fileName.replace(/\.pdf$/i, "") || current.fileName;
+      const fileTitle = titleFromFileName(current.fileName);
       const title = current.title === fileTitle ? pickTitle(info.title, fileTitle) : current.title;
       const updated: DocumentMeta = {
         ...current,
@@ -660,10 +661,27 @@ export default function App() {
       try {
         bytes = new Uint8Array(await file.arrayBuffer());
       } catch {
-        alert("Failed to read the PDF file.");
+        alert(`Failed to read the ${isEpub(file) ? "EPUB" : "PDF"} file.`);
         return;
       }
-      await openPdf(bytes, file.name, { legacyFile: file });
+      if (!isEpub(file)) {
+        await openPdf(bytes, file.name, { legacyFile: file });
+        return;
+      }
+      // An EPUB reads as the PDF it's converted to — converted once, the
+      // first time it's opened or added.
+      let epub;
+      document.documentElement.style.cursor = "progress";
+      try {
+        epub = await pdfForEpub(getStorage(), bytes);
+      } catch (error) {
+        console.error(error);
+        alert(error instanceof Error && error.message ? error.message : "Failed to read the EPUB file.");
+        return;
+      } finally {
+        document.documentElement.style.cursor = "";
+      }
+      await openPdf(epub.pdf, file.name, { docId: epub.docId });
     },
     [openPdf],
   );
@@ -874,7 +892,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = loadedPdf.fileName.replace(/\.pdf$/i, "") + "-annotated.pdf";
+      anchor.download = titleFromFileName(loadedPdf.fileName) + "-annotated.pdf";
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -1854,7 +1872,7 @@ export default function App() {
       <input
         ref={openFileInputRef}
         type="file"
-        accept="application/pdf,.pdf"
+        accept="application/pdf,.pdf,application/epub+zip,.epub"
         hidden
         onChange={(event) => {
           const file = event.target.files?.[0];

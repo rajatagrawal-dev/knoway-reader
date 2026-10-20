@@ -13,7 +13,7 @@ import {
 import { importFiles } from "./importFiles";
 import { canRevealFiles, revealInFileManager } from "./desktop";
 
-// The library: every PDF the reader has added, what they were last reading,
+// The library: every PDF and EPUB the reader has added, what they were last reading,
 // and the way to add more. Replaces the old single-file upload screen.
 
 const SORT_KEY = "library-sort";
@@ -89,7 +89,7 @@ export default function LibraryHome({
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  // ⌘O adds PDFs from here too.
+  // ⌘O adds PDFs and EPUBs from here too.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
@@ -108,17 +108,17 @@ export default function LibraryHome({
     setImporting(null);
     await reload();
     const parts = [];
-    if (result.added.length) parts.push(`Added ${plural(result.added.length, "PDF")}.`);
+    if (result.added.length) parts.push(`Added ${plural(result.added.length, "document")}.`);
     if (result.alreadyThere.length) {
       parts.push(
         result.alreadyThere.length === 1
           ? `“${result.alreadyThere[0].title}” is already in your library.`
-          : `${plural(result.alreadyThere.length, "PDF")} were already in your library.`,
+          : `${plural(result.alreadyThere.length, "document")} were already in your library.`,
       );
     }
     if (result.failed.length) parts.push(`Couldn't read ${result.failed.join(", ")}.`);
     setNotice(parts.join(" ") || null);
-    // A single new PDF opens right away — that's almost always why it was added.
+    // A single new document opens right away — that's almost always why it was added.
     if (files.length === 1 && result.added.length === 1) onOpen(result.added[0]);
     else if (files.length === 1 && result.alreadyThere.length === 1 && !result.alreadyThere[0].fileMissing) {
       onOpen(result.alreadyThere[0]);
@@ -152,7 +152,7 @@ export default function LibraryHome({
       await reload();
       setNotice(
         `Imported notes for ${plural(summary.documents, "document")}.` +
-          (summary.missingFiles ? ` Add ${summary.missingFiles === 1 ? "its PDF" : "their PDFs"} to open ${plural(summary.missingFiles, "of them")}.` : ""),
+          (summary.missingFiles ? ` Add ${summary.missingFiles === 1 ? "its file" : "their files"} to open ${plural(summary.missingFiles, "of them")}.` : ""),
       );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Couldn't import those notes.");
@@ -169,7 +169,7 @@ export default function LibraryHome({
     thumbnails,
     onOpen: (doc: DocumentMeta) => {
       if (doc.fileMissing) {
-        setNotice(`Add the PDF of “${doc.title}” to open it — its notes are already here.`);
+        setNotice(`Add the file of “${doc.title}” to open it — its notes are already here.`);
         fileInputRef.current?.click();
         return;
       }
@@ -212,8 +212,8 @@ export default function LibraryHome({
           <option value="added">Recently added</option>
           <option value="title">Title</option>
         </select>
-        <button type="button" className="library-add" onClick={() => fileInputRef.current?.click()} title="Add PDFs (⌘O)">
-          <Plus width={16} height={16} /> Add PDFs
+        <button type="button" className="library-add" onClick={() => fileInputRef.current?.click()} title="Add PDFs or EPUBs (⌘O)">
+          <Plus width={16} height={16} /> Add books
         </button>
         <div className="library-menu-anchor">
           <button type="button" className="library-icon-button" onClick={() => setMenuOpen((open) => !open)} title="More">
@@ -250,7 +250,7 @@ export default function LibraryHome({
         <input
           ref={fileInputRef}
           type="file"
-          accept="application/pdf,.pdf"
+          accept="application/pdf,.pdf,application/epub+zip,.epub"
           multiple
           hidden
           onChange={(event) => {
@@ -272,7 +272,7 @@ export default function LibraryHome({
 
       {importing ? (
         <p className="library-notice" role="status">
-          Adding {importing.total > 1 ? `${Math.min(importing.done + 1, importing.total)} of ${importing.total}` : "your PDF"}…
+          Adding {importing.total > 1 ? `${Math.min(importing.done + 1, importing.total)} of ${importing.total}` : "your file"}…
         </p>
       ) : notice ? (
         <p className="library-notice" role="status">
@@ -284,8 +284,8 @@ export default function LibraryHome({
         {documents === null ? null : documents.length === 0 ? (
           <button type="button" className="library-empty" onClick={() => fileInputRef.current?.click()}>
             <Plus width={28} height={28} />
-            <span className="library-empty-title">Add your first PDF</span>
-            <span className="library-empty-hint">Drop PDFs anywhere here, or click to choose files.</span>
+            <span className="library-empty-title">Add your first PDF or EPUB</span>
+            <span className="library-empty-hint">Drop PDFs or EPUBs anywhere here, or click to choose files.</span>
           </button>
         ) : (
           <>
@@ -315,7 +315,7 @@ export default function LibraryHome({
 
       {dragging ? (
         <div className="library-drop-overlay" aria-hidden="true">
-          Drop PDFs to add them
+          Drop PDFs or EPUBs to add them
         </div>
       ) : null}
     </div>
@@ -377,7 +377,7 @@ function DocumentCard({
           {renaming ? null : <span className="library-card-title">{doc.title}</span>}
           {doc.author ? <span className="library-card-author">{doc.author}</span> : null}
           {doc.fileMissing ? (
-            <span className="library-card-missing">PDF not added yet</span>
+            <span className="library-card-missing">File not added yet</span>
           ) : progress ? (
             <span className="library-progress" title={progress.label}>
               <span className="library-progress-bar">

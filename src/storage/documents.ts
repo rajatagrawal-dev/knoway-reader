@@ -94,12 +94,15 @@ export interface OpenedDocument {
   data: Record<ReaderDataKind, unknown>; // null where nothing is stored yet
 }
 
-function titleFromFileName(fileName: string): string {
-  return fileName.replace(/\.pdf$/i, "") || fileName;
+// A file name without its extension: the title a document starts with, and
+// the base of an exported copy's name.
+export function titleFromFileName(fileName: string): string {
+  return fileName.replace(/\.(pdf|epub)$/i, "") || fileName;
 }
 
 // Adds the PDF to the library if it isn't there yet — or brings back its
-// file, for notes restored from a backup without it. `open` marks it
+// file, for notes restored from a backup without it. (An EPUB comes as the
+// PDF it was converted to, with the EPUB's own docId; see epub/index.ts.) `open` marks it
 // opened now; an import alone (from the library) doesn't. Details the PDF
 // itself provides (title, author, page count) are filled in by the caller,
 // who has the PDF parsed (see library/pdfInfo.ts).
