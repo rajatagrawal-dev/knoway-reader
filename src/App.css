@@ -3959,6 +3959,39 @@
   border-bottom: 1px solid color-mix(in srgb, var(--link) 55%, transparent);
 }
 
+/* Figures (see FigureMarks): outlined on hover as a click target, and, once
+   clicked, drawn like the area selection a drag makes while its tip is
+   open. Below the highlight layers, so existing highlights stay on top. */
+.figure-marks-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.figure-mark {
+  position: absolute;
+  border-radius: 3px;
+}
+
+.figure-mark.is-hover {
+  outline: 1.5px dashed color-mix(in srgb, var(--rphp-accent, #5b50e6) 70%, transparent);
+  outline-offset: 2px;
+  background: rgba(91, 80, 230, 0.04);
+}
+
+.figure-mark.is-active {
+  outline: 2px dashed var(--rphp-accent, #5b50e6);
+  outline-offset: 2px;
+  background: rgba(91, 80, 230, 0.08);
+}
+
+.pdf-pane-viewer .figure-hover .page,
+.pdf-pane-viewer .figure-hover .textLayer,
+.pdf-pane-viewer .figure-hover .textLayer span {
+  cursor: pointer;
+}
+
 .xref-card {
   position: fixed;
   z-index: 60;

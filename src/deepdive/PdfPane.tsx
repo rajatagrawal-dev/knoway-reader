@@ -17,6 +17,7 @@ import pdfWorkerUrl from "../pdfWorker";
 import { extractPageContext } from "./pdfContext";
 import GlossaryMarks from "../glossary/GlossaryMarks";
 import XrefMarks, { type XrefBindings } from "../xref/XrefMarks";
+import FigureMarks from "../figures/FigureMarks";
 import type { HighlightPen, Tool } from "../components/AppRail";
 
 export type PdfSource = string | Uint8Array;
@@ -354,6 +355,12 @@ export default function PdfPane({
                 pageLabel={glossary.pageLabel}
               />
               <XrefMarks pdfDocument={pdfDocument} utilsRef={highlighterUtilsRef} bindings={xref} />
+              <FigureMarks
+                pdfDocument={pdfDocument}
+                utilsRef={highlighterUtilsRef}
+                enabled={tool === "select" || areaMode}
+                pointer={tool === "select"}
+              />
               <PdfHighlighter
                 pdfDocument={pdfDocument}
                 theme={PDF_VIEWER_THEME}

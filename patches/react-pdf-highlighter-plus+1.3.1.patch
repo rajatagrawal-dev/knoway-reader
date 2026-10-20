@@ -1,8 +1,24 @@
 diff --git a/node_modules/react-pdf-highlighter-plus/dist/esm/index.d.ts b/node_modules/react-pdf-highlighter-plus/dist/esm/index.d.ts
-index f409928..6348bc1 100644
+index f409928..9f81ada 100644
 --- a/node_modules/react-pdf-highlighter-plus/dist/esm/index.d.ts
 +++ b/node_modules/react-pdf-highlighter-plus/dist/esm/index.d.ts
-@@ -838,13 +838,27 @@ interface TextHighlightProps {
+@@ -363,6 +363,15 @@ type PdfHighlighterUtils = {
+      * @returns - current selection or `null` if no selection is being made.
+      */
+     getCurrentSelection(): PdfSelection | null;
++    /**
++     * Select an area of a page as if it had been dragged out: `onSelection`
++     * fires and the selection tip opens for it.
++     *
++     * @param position - the area, in viewport coordinates of its page.
++     * @param image - the area's screenshot, as a data URL.
++     * @returns - the selection, or `null` if the viewer isn't ready.
++     */
++    setAreaSelection(position: ViewportPosition, image: string): PdfSelection | null;
+     /**
+      * Get the currently present ghost highlight.
+      *
+@@ -838,13 +847,27 @@ interface TextHighlightProps {
       * toggle).
       */
      extraPanel?: ReactNode;
@@ -31,7 +47,7 @@ index f409928..6348bc1 100644
  
  /**
   * The props type for {@link MonitoredHighlightContainer}.
-@@ -966,13 +980,27 @@ interface AreaHighlightProps {
+@@ -966,13 +989,27 @@ interface AreaHighlightProps {
       * toggle).
       */
      extraPanel?: ReactNode;
@@ -60,7 +76,7 @@ index f409928..6348bc1 100644
  
  /**
   * Style options for freetext highlight appearance.
-@@ -1073,6 +1101,21 @@ interface FreetextHighlightProps {
+@@ -1073,6 +1110,21 @@ interface FreetextHighlightProps {
       * Default: ["#333333", "#d32f2f", "#1976d2", "#388e3c", "#7b1fa2"]
       */
      textColorPresets?: string[];
@@ -82,7 +98,7 @@ index f409928..6348bc1 100644
      /**
       * Callback triggered when the delete button is clicked.
       */
-@@ -1094,7 +1137,7 @@ interface FreetextHighlightProps {
+@@ -1094,7 +1146,7 @@ interface FreetextHighlightProps {
       */
      compactIcon?: ReactNode;
  }
@@ -92,7 +108,7 @@ index f409928..6348bc1 100644
  /**
   * The props type for {@link ImageHighlight}.
 diff --git a/node_modules/react-pdf-highlighter-plus/dist/esm/index.js b/node_modules/react-pdf-highlighter-plus/dist/esm/index.js
-index 2666d4c..dfe3827 100644
+index 2666d4c..f98796d 100644
 --- a/node_modules/react-pdf-highlighter-plus/dist/esm/index.js
 +++ b/node_modules/react-pdf-highlighter-plus/dist/esm/index.js
 @@ -1624,6 +1624,9 @@ var PdfHighlighter = ({
@@ -114,7 +130,39 @@ index 2666d4c..dfe3827 100644
        eventBusRef.current.off("pagerendered", handlePageRendered);
        eventBusRef.current.off("textlayerrendered", handlePageRendered);
        doc.removeEventListener("keydown", handleKeyDown);
-@@ -2548,15 +2553,13 @@ var TextHighlight = memo(({
+@@ -2232,6 +2237,31 @@ var PdfHighlighter = ({
+     },
+     isHighlightSelected: () => selectedHighlightCountRef.current > 0,
+     getCurrentSelection: () => selectionRef.current,
++    setAreaSelection: (viewportPosition, image) => {
++      const viewer = viewerRef.current;
++      if (!viewer) return null;
++      const scaledPosition = viewportPositionToScaled(viewportPosition, viewer);
++      selectionRef.current = {
++        content: { image },
++        type: "area",
++        position: scaledPosition,
++        makeGhostHighlight: () => {
++          ghostHighlightRef.current = {
++            position: scaledPosition,
++            type: "area",
++            content: { image }
++          };
++          onCreateGhostHighlight && onCreateGhostHighlight(ghostHighlightRef.current);
++          selectionRef.current = null;
++          renderHighlightLayers();
++          return ghostHighlightRef.current;
++        }
++      };
++      const selection = selectionRef.current;
++      onSelectionFinished && onSelectionFinished(selection);
++      selectionTip && setTip({ position: viewportPosition, content: selectionTip });
++      return selection;
++    },
+     getGhostHighlight: () => ghostHighlightRef.current,
+     removeGhostHighlight,
+     toggleEditInProgress,
+@@ -2548,15 +2578,13 @@ var TextHighlight = memo(({
    copyText,
    colorPresets = DEFAULT_COLOR_PRESETS,
    extraButtons,
@@ -133,7 +181,7 @@ index 2666d4c..dfe3827 100644
    const containerRef = useRef(null);
    const toolbarWrapperRef = useRef(null);
    const copyResetTimeoutRef = useRef(null);
-@@ -2568,15 +2571,11 @@ var TextHighlight = memo(({
+@@ -2568,15 +2596,11 @@ var TextHighlight = memo(({
        const insideToolbar = toolbarWrapperRef.current?.contains(target);
        if (!insideRoot && !insideToolbar) {
          setIsSelected(false);
@@ -149,7 +197,7 @@ index 2666d4c..dfe3827 100644
        }
      };
      document.addEventListener("mousedown", handlePointerDown);
-@@ -2599,36 +2598,6 @@ var TextHighlight = memo(({
+@@ -2599,36 +2623,6 @@ var TextHighlight = memo(({
        }
      };
    }, []);
@@ -186,7 +234,7 @@ index 2666d4c..dfe3827 100644
    const highlightClass = isScrolledTo ? "TextHighlight--scrolledTo" : "";
    const selectedClass = isSelected ? "TextHighlight--selected" : "";
    const { rects } = highlight.position;
-@@ -2689,136 +2658,96 @@ var TextHighlight = memo(({
+@@ -2689,136 +2683,96 @@ var TextHighlight = memo(({
          /* @__PURE__ */ React11.createElement(
            "div",
            {
@@ -250,25 +298,27 @@ index 2666d4c..dfe3827 100644
 -              type: "button"
 -            },
 -            styleIcon || /* @__PURE__ */ React11.createElement(DefaultStyleIcon, null)
--          ),
--          /* @__PURE__ */ React11.createElement(
--            "button",
--            {
--              className: "TextHighlight__copy-button",
--              onClick: handleCopy,
--              title: isCopied ? "Copied" : "Copy text",
--              type: "button"
--            },
--            isCopied ? /* @__PURE__ */ React11.createElement(DefaultCopiedIcon, null) : /* @__PURE__ */ React11.createElement(DefaultCopyIcon, null)
 +              deleteIcon || /* @__PURE__ */ React11.createElement(DefaultDeleteIcon, null)
 +            )
            ),
--          extraButtons,
--          onDelete && /* @__PURE__ */ React11.createElement(
+-          /* @__PURE__ */ React11.createElement(
 -            "button",
 +          (isSelected || isScrolledTo) && onStyleChange && /* @__PURE__ */ React11.createElement(
 +            "div",
              {
+-              className: "TextHighlight__copy-button",
+-              onClick: handleCopy,
+-              title: isCopied ? "Copied" : "Copy text",
+-              type: "button"
++              className: "TextHighlight__color-row",
++              onClick: (e) => e.stopPropagation()
+             },
+-            isCopied ? /* @__PURE__ */ React11.createElement(DefaultCopiedIcon, null) : /* @__PURE__ */ React11.createElement(DefaultCopyIcon, null)
+-          ),
+-          extraButtons,
+-          onDelete && /* @__PURE__ */ React11.createElement(
+-            "button",
+-            {
 -              className: "TextHighlight__delete-button",
 -              onClick: (e) => {
 -                e.stopPropagation();
@@ -276,9 +326,7 @@ index 2666d4c..dfe3827 100644
 -              },
 -              title: "Delete",
 -              type: "button"
-+              className: "TextHighlight__color-row",
-+              onClick: (e) => e.stopPropagation()
-             },
+-            },
 -            deleteIcon || /* @__PURE__ */ React11.createElement(DefaultDeleteIcon, null)
 -          )
 -        ),
@@ -370,7 +418,7 @@ index 2666d4c..dfe3827 100644
        ),
        configLayer
      ),
-@@ -2833,6 +2762,7 @@ var TextHighlight = memo(({
+@@ -2833,6 +2787,7 @@ var TextHighlight = memo(({
            onMouseOver,
            onMouseOut,
            onClick: (event) => {
@@ -378,7 +426,7 @@ index 2666d4c..dfe3827 100644
              setIsSelected(true);
              onClick?.(event);
            },
-@@ -2960,13 +2890,13 @@ var AreaHighlight = memo(({
+@@ -2960,13 +2915,13 @@ var AreaHighlight = memo(({
    copyText,
    colorPresets = DEFAULT_COLOR_PRESETS2,
    extraButtons,
@@ -395,7 +443,7 @@ index 2666d4c..dfe3827 100644
    const containerRef = useRef(null);
    const toolbarWrapperRef = useRef(null);
    const copyResetTimeoutRef = useRef(null);
-@@ -2978,13 +2908,11 @@ var AreaHighlight = memo(({
+@@ -2978,13 +2933,11 @@ var AreaHighlight = memo(({
        const insideToolbar = toolbarWrapperRef.current?.contains(target);
        if (!insideRoot && !insideToolbar) {
          setIsSelected(false);
@@ -409,7 +457,7 @@ index 2666d4c..dfe3827 100644
        }
      };
      document.addEventListener("mousedown", handlePointerDown);
-@@ -3007,21 +2935,6 @@ var AreaHighlight = memo(({
+@@ -3007,21 +2960,6 @@ var AreaHighlight = memo(({
        }
      };
    }, []);
@@ -431,7 +479,7 @@ index 2666d4c..dfe3827 100644
    const highlightClass = isScrolledTo ? "AreaHighlight--scrolledTo" : "";
    const selectedClass = isSelected ? "AreaHighlight--selected" : "";
    const flipToolbar = highlight.position.boundingRect.top < 40;
-@@ -3068,85 +2981,65 @@ var AreaHighlight = memo(({
+@@ -3068,85 +3006,65 @@ var AreaHighlight = memo(({
          /* @__PURE__ */ React11.createElement(
            "div",
            {
@@ -566,7 +614,7 @@ index 2666d4c..dfe3827 100644
        ),
        configLayer
      ),
-@@ -3188,6 +3081,7 @@ var AreaHighlight = memo(({
+@@ -3188,6 +3106,7 @@ var AreaHighlight = memo(({
          onClick: (event) => {
            event.stopPropagation();
            event.preventDefault();
@@ -574,7 +622,7 @@ index 2666d4c..dfe3827 100644
            setIsSelected(true);
          },
          style: mergedStyle
-@@ -3233,6 +3127,9 @@ var FreetextHighlight = ({
+@@ -3233,6 +3152,9 @@ var FreetextHighlight = ({
    styleIcon,
    backgroundColorPresets = DEFAULT_BACKGROUND_PRESETS,
    textColorPresets = DEFAULT_TEXT_PRESETS,
@@ -584,7 +632,7 @@ index 2666d4c..dfe3827 100644
    onDelete,
    deleteIcon,
    compact = false,
-@@ -3273,6 +3170,18 @@ var FreetextHighlight = ({
+@@ -3273,6 +3195,18 @@ var FreetextHighlight = ({
        document.removeEventListener("keydown", handleKey);
      };
    }, [isSelected, isEditing]);
@@ -603,7 +651,7 @@ index 2666d4c..dfe3827 100644
    useEffect(() => {
      setText(highlight.content?.text || "");
    }, [highlight.content?.text]);
-@@ -3404,16 +3313,7 @@ var FreetextHighlight = ({
+@@ -3404,16 +3338,7 @@ var FreetextHighlight = ({
          minHeight: isCompactCollapsed ? compactSize : 50,
          key,
          bounds,
@@ -621,7 +669,7 @@ index 2666d4c..dfe3827 100644
          onResizeStop: (_e, _direction, ref, _delta, position) => {
            const boundingRect = {
              top: position.y,
-@@ -3440,17 +3340,22 @@ var FreetextHighlight = ({
+@@ -3440,17 +3365,22 @@ var FreetextHighlight = ({
            onDoubleClick: enterEditMode
          },
          isCompactCollapsed ? /* @__PURE__ */ React11.createElement(
@@ -655,7 +703,7 @@ index 2666d4c..dfe3827 100644
          ) : /* @__PURE__ */ React11.createElement(React11.Fragment, null, /* @__PURE__ */ React11.createElement(
            "div",
            {
-@@ -3559,7 +3464,7 @@ var FreetextHighlight = ({
+@@ -3559,7 +3489,7 @@ var FreetextHighlight = ({
                  style: c !== "transparent" ? { backgroundColor: c } : void 0
                }
              ),
@@ -664,7 +712,7 @@ index 2666d4c..dfe3827 100644
              backgroundColor === c && /* @__PURE__ */ React11.createElement("span", { className: "FreetextHighlight__color-menu-check" }, /* @__PURE__ */ React11.createElement(CheckIcon3, null))
            ))
          ), isStylePanelOpen && /* @__PURE__ */ React11.createElement(
-@@ -3581,7 +3486,7 @@ var FreetextHighlight = ({
+@@ -3581,7 +3511,7 @@ var FreetextHighlight = ({
                className: `FreetextHighlight__color-preset ${color === c ? "active" : ""}`,
                style: { backgroundColor: c },
                onClick: () => onStyleChange?.({ color: c }),
@@ -673,7 +721,7 @@ index 2666d4c..dfe3827 100644
              }
            ))), /* @__PURE__ */ React11.createElement(
              "input",
-@@ -3617,23 +3522,30 @@ var FreetextHighlight = ({
+@@ -3617,23 +3547,30 @@ var FreetextHighlight = ({
                  onStyleChange?.({ fontFamily: e.target.value });
                }
              },

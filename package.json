@@ -11,7 +11,7 @@
     "server": "node server/index.js",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --test server/*.test.js server/providers/*.test.js src/glossary/*.test.ts src/storage/*.test.ts src/text/*.test.ts src/navigation/*.test.ts src/grounding/*.test.ts src/library/*.test.ts src/xref/*.test.ts src/notation/*.test.ts src/deepdive/*.test.ts",
+    "test": "node --test server/*.test.js server/providers/*.test.js src/glossary/*.test.ts src/storage/*.test.ts src/text/*.test.ts src/navigation/*.test.ts src/grounding/*.test.ts src/library/*.test.ts src/xref/*.test.ts src/notation/*.test.ts src/deepdive/*.test.ts src/figures/*.test.ts",
     "tauri": "tauri",
     "postinstall": "patch-package",
     "eval:grounding": "node scripts/eval-grounding.mjs"
