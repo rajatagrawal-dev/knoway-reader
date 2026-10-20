@@ -4,8 +4,9 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { FigureRegion } from "./detect";
 import { getPageFigures } from "./figureIndex";
 
-// Figures in the PDF — pictures, plots, diagrams — outlined on hover and
-// selected with a click, as if their area had been dragged out (Alt-drag):
+// Figures in the PDF — pictures, plots, diagrams, tables, algorithms (see
+// detect.ts) — outlined on hover and selected with a click, as if their
+// area had been dragged out (Alt-drag):
 // the selection tip opens for it, or, with the Area tool, it's highlighted
 // straight away. Built like the cross-reference marks (see XrefMarks): one
 // layer per rendered page that ignores the pointer, hit-tested on pointer

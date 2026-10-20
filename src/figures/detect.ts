@@ -2,7 +2,9 @@
 // the page draws rather than from its text: every image and filled or
 // stroked path is placed on the page, nearby marks are grouped, and each
 // group big and busy enough to be a figure becomes one, along with the text
-// drawn in it (axis labels, legends) and its "Figure 3: …" caption. Pure:
+// drawn in it (axis labels, legends) and its "Figure 3: …" caption. Tables
+// and algorithms are found too: from their "Table 2." caption and the rows
+// set against it, or, uncaptioned, from their rules. Pure:
 // the operator list comes from pdf.js (figureIndex.ts), the text runs from
 // the library's extractPageTextItems, and `ops` is pdf.js's OPS table.
 //
@@ -15,7 +17,7 @@ export interface FigureRegion {
   top: number;
   width: number;
   height: number;
-  kind: "image" | "drawing";
+  kind: "image" | "drawing" | "table" | "algorithm";
 }
 
 export interface OperatorListLike {
@@ -56,6 +58,7 @@ interface Rect {
 interface Mark {
   rect: Rect;
   image: boolean;
+  glyph?: boolean; // a letter drawn as a bitmap mask
 }
 
 const GAP = 4; // marks closer than this belong to the same group
@@ -69,11 +72,25 @@ const MIN_MARKS = 6; // a drawing with fewer marks is a frame or a rule, unless 
 const MIN_CAPTIONED_MARKS = 2;
 const MAX_MARK_AREA = 0.6; // a mark covering more of the page is a background
 const MAX_FIGURE_AREA = 0.85; // a "figure" filling the page is a scanned page
-// "Figure 3:", "Fig. 2.", "Table 1 |" — a label then punctuation, which a
-// sentence that merely starts with "Fig. 2 shows…" doesn't have.
-const CAPTION = /^\s*(?:fig(?:ure)?s?\.?|table|tab\.)\s*[A-Z]?\d+(?:\.\d+)*[a-z]?(?=\s*[.:|—–-]|\s*$)/i;
+// "Figure 3:", "Fig. 2.", "Table 1 |", "Algorithm 2:" — a label then
+// punctuation, which a sentence that merely starts with "Fig. 2 shows…"
+// doesn't have.
+const LABEL = "(fig(?:ure)?s?\\.?|tables?|tab\\.|algorithms?|alg\\.|listings?)\\s*[A-Z]?\\d+(?:\\.\\d+)*[a-z]?";
+const CAPTION = new RegExp(`^\\s*${LABEL}(?=\\s*[.:|—–-]|\\s*$)`, "i");
+// An algorithm's caption is often just "Algorithm 1 Name", set between
+// rules — taken as one when a rule is right there.
+const BARE_ALGORITHM = /^\s*algorithm\s+\d+\b/i;
+const MAX_ROW_GAP = 2; // line heights between a table's rows (or a rule) and the next
 const MAX_CAPTION_LINES = 14;
 const MARGIN_BAND = 0.1; // top and bottom of the page, where running heads and feet go
+const MIN_TABLE_RULE = 80; // a table's rules are at least this long; a fraction bar isn't
+
+type CaptionKind = "figure" | "table" | "algorithm";
+
+function captionKind(text: string): CaptionKind {
+  const label = /^\s*(\w)/.exec(text)?.[1].toLowerCase();
+  return label === "t" ? "table" : label === "a" || label === "l" ? "algorithm" : "figure";
+}
 
 // ---- Geometry ---------------------------------------------------------------------
 
@@ -138,6 +155,8 @@ function near(a: Rect, b: Rect, gap: number): boolean {
 function overlapArea(a: Rect, b: Rect): number {
   return area(intersect(a, b));
 }
+
+const overlapsH = (a: Rect, b: Rect) => a.left < b.right && b.left < a.right;
 
 // ---- Marks: what the page draws, and where ------------------------------------------
 
@@ -216,13 +235,13 @@ export function collectMarks(
     ops.paintSolidColorImageMask,
   ]);
 
-  const add = (rect: Rect, image: boolean) => {
+  const add = (rect: Rect, image: boolean, glyph = false) => {
     const visible = intersect(rect, state.clip);
     if (isEmpty(visible) || area(visible) > pageArea * MAX_MARK_AREA) return;
     // Hairlines have no area of their own; give them a sliver so they count.
     if (width(visible) < 0.5) visible.right = visible.left + 0.5;
     if (height(visible) < 0.5) visible.bottom = visible.top + 0.5;
-    marks.push({ rect: visible, image });
+    marks.push({ rect: visible, image, glyph });
   };
 
   for (let i = 0; i < list.fnArray.length; i += 1) {
@@ -275,7 +294,12 @@ export function collectMarks(
     } else if (images.has(fn)) {
       add(transformBox(state.m, 0, 0, 1, 1), true);
     } else if (masks.has(fn)) {
-      if (!state.whiteFill) add(transformBox(state.m, 0, 0, 1, 1), false);
+      // A glyph-sized mask may be a letter drawn as a bitmap (a Type 3
+      // font's), or a dot in a diagram — which it is depends on what it's
+      // drawn with (see groupMarks).
+      const box = transformBox(state.m, 0, 0, 1, 1);
+      const glyph = Math.min(width(box), height(box)) >= HAIRLINE && height(box) < 14 && width(box) < 60;
+      if (!state.whiteFill) add(box, false, glyph);
     } else if (fn === ops.shadingFill) {
       if (state.clip) add({ ...state.clip }, false);
     }
@@ -289,6 +313,12 @@ interface Group {
   rect: Rect;
   marks: number;
   shapes: number; // marks that aren't hairlines
+  across: number; // horizontal hairlines (a table's rules)
+  down: number; // vertical ones
+  // Rules spanning the group's whole width (or height), however many
+  // pieces they're drawn in (a table's vertical rules come a row at a time).
+  fullAcross: number;
+  fullDown: number;
   imageArea: number;
 }
 
@@ -329,15 +359,39 @@ export function groupMarks(marks: Mark[], page: { width: number; height: number 
   }
 
   const found = new Map<number, Group>();
+  const members = new Map<number, Mark[]>();
   for (const mark of marks) {
     const cx = cellOf((mark.rect.left + mark.rect.right) / 2, cols);
     const cy = cellOf((mark.rect.top + mark.rect.bottom) / 2, rows);
     const id = grid[cy * cols + cx];
-    const group = found.get(id) ?? { rect: { ...mark.rect }, marks: 0, shapes: 0, imageArea: 0 };
-    group.rect = union(group.rect, mark.rect);
-    group.marks += 1;
-    if (Math.min(width(mark.rect), height(mark.rect)) >= HAIRLINE) group.shapes += 1;
-    if (mark.image) group.imageArea += area(mark.rect);
+    const list = members.get(id);
+    if (list) list.push(mark);
+    else members.set(id, [mark]);
+  }
+  for (const [id, list] of members) {
+    // Letters drawn as bitmaps on their own are text, not a picture.
+    if (list.every((mark) => mark.glyph)) continue;
+    const rect = list.map((mark) => mark.rect).reduce(union);
+    const group: Group = { rect, marks: 0, shapes: 0, across: 0, down: 0, fullAcross: 0, fullDown: 0, imageArea: 0 };
+    const rows = new Map<number, number>(); // y → length of rule drawn along it
+    const columns = new Map<number, number>();
+    for (const mark of list) {
+      const [w, h] = [width(mark.rect), height(mark.rect)];
+      group.marks += 1;
+      if (Math.min(w, h) >= HAIRLINE) group.shapes += 1;
+      else if (h < HAIRLINE && w >= 3) {
+        group.across += 1;
+        const y = Math.round(mark.rect.top);
+        rows.set(y, (rows.get(y) ?? 0) + w);
+      } else if (w < HAIRLINE && h >= 3) {
+        group.down += 1;
+        const x = Math.round(mark.rect.left);
+        columns.set(x, (columns.get(x) ?? 0) + h);
+      }
+      if (mark.image) group.imageArea += area(mark.rect);
+    }
+    group.fullAcross = [...rows.values()].filter((length) => length >= width(rect) * 0.9).length;
+    group.fullDown = [...columns.values()].filter((length) => length >= height(rect) * 0.9).length;
     found.set(id, group);
   }
   return [...found.values()];
@@ -347,6 +401,10 @@ function absorb(into: Group, other: Group) {
   into.rect = union(into.rect, other.rect);
   into.marks += other.marks;
   into.shapes += other.shapes;
+  into.across += other.across;
+  into.down += other.down;
+  into.fullAcross = 0; // no longer known for the whole
+  into.fullDown = 0;
   into.imageArea += other.imageArea;
 }
 
@@ -445,8 +503,9 @@ function textBetween(a: Rect, b: Rect, lines: Line[]): boolean {
   );
 }
 
-// A caption's whole paragraph, from its "Figure 3:" line on.
-function captionBlock(lines: Line[], index: number, stopAt = Infinity): Rect {
+// A caption's whole paragraph, from its "Figure 3:" line on — up to a rule
+// under it, as an algorithm's caption has.
+function captionBlock(lines: Line[], index: number, stopAt = Infinity, rules: Rect[] = []): Rect {
   const first = lines[index];
   let caption = { ...first.rect };
   let count = 1;
@@ -454,6 +513,10 @@ function captionBlock(lines: Line[], index: number, stopAt = Infinity): Rect {
     const next = lines[k];
     if (next.rect.right < caption.left || next.rect.left > caption.right) continue; // another column
     if (next.rect.top - caption.bottom > first.lineHeight * 0.8 || next.rect.top >= stopAt) break;
+    // Captions are set in their own size; a heading or body text after
+    // one is larger.
+    if (next.lineHeight > first.lineHeight * 1.05) break;
+    if (rules.some((rule) => overlapsH(rule, caption) && rule.top >= caption.bottom - 1 && rule.bottom <= next.rect.top + 1)) break;
     caption = union(caption, next.rect);
     count += 1;
   }
@@ -462,7 +525,7 @@ function captionBlock(lines: Line[], index: number, stopAt = Infinity): Rect {
 
 // The nearest "Figure 3: …" / "Table 2." line just below (or above) the
 // figure, overlapping it horizontally, and the rest of its paragraph.
-function findCaption(rect: Rect, lines: Line[]): Rect | null {
+function findCaption(rect: Rect, lines: Line[], rules: Rect[]): Rect | null {
   let best: { index: number; distance: number; above: boolean } | null = null;
   lines.forEach((line, index) => {
     if (!isCaption(lines, index)) return;
@@ -480,10 +543,8 @@ function findCaption(rect: Rect, lines: Line[]): Rect | null {
   });
   if (!best) return null;
   const { index, above } = best as { index: number; above: boolean };
-  return captionBlock(lines, index, above ? rect.top : Infinity);
+  return captionBlock(lines, index, above ? rect.top : Infinity, rules);
 }
-
-const overlapsH = (a: Rect, b: Rect) => a.left < b.right && b.left < a.right;
 
 // Whether line `index` reads as a caption: a "Figure 3:" label starting a
 // paragraph, not a sentence that wrapped onto a new line at "Figure 3."
@@ -514,6 +575,19 @@ function textHeavy(rect: Rect, lines: Line[]): boolean {
 
 type Part = Group & { rules: boolean };
 
+interface Caption {
+  rect: Rect;
+  kind: CaptionKind;
+  lineHeight: number;
+}
+
+interface Rows {
+  rect: Rect;
+  gap: number; // from the caption to the first row
+}
+
+type Direction = "above" | "below";
+
 export function findFigures(
   list: OperatorListLike,
   ops: Record<string, number>,
@@ -521,16 +595,33 @@ export function findFigures(
   runs: TextRun[],
 ): FigureRegion[] {
   const pageArea = page.width * page.height;
-  const lines = textLines(runs);
+  let lines = textLines(runs);
+  const groups = groupMarks(collectMarks(list, ops, page), page);
 
-  // Rules alone (fraction bars, table and header rules) are never a figure
-  // by themselves; they only join one, or make up a captioned table.
-  // A wide rule in the top or bottom margin is a running head's or foot's.
-  const margin = (rect: Rect) =>
-    width(rect) >= page.width * 0.4 && (rect.bottom <= page.height * MARGIN_BAND || rect.top >= page.height * (1 - MARGIN_BAND));
-  const parts: Part[] = groupMarks(collectMarks(list, ops, page), page).flatMap((group) => {
-    const rules = group.shapes === 0 && group.imageArea === 0;
-    if (rules && margin(group.rect)) return [];
+  // A running head's or foot's rule: the wide rule nearest the top (or
+  // bottom) of the page, with nothing but the head (or foot) beyond it.
+  const isRules = (group: Group) => group.shapes === 0 && group.imageArea === 0;
+  const wideRules = groups.filter((group) => isRules(group) && width(group.rect) >= page.width * 0.4);
+  const runningRule = (group: Group) => {
+    const top = group.rect.bottom <= page.height * MARGIN_BAND;
+    const bottom = group.rect.top >= page.height * (1 - MARGIN_BAND);
+    if (!top && !bottom) return false;
+    const beyond = (r: Rect) => (top ? r.bottom <= group.rect.top : r.top >= group.rect.bottom);
+    const inBand = (r: Rect) => (top ? r.bottom <= page.height * MARGIN_BAND : r.top >= page.height * (1 - MARGIN_BAND));
+    const text = lines.filter((line) => beyond(line.rect));
+    return text.length > 0 && text.every((line) => inBand(line.rect)) && !wideRules.some((other) => other !== group && beyond(other.rect));
+  };
+
+  // Rules alone (fraction bars, table rules) are never a figure by
+  // themselves; they join one, or make up a table.
+  const running = wideRules.filter(runningRule);
+  // The running head's (or foot's) own text is no part of anything.
+  lines = lines.filter(
+    (line) => !running.some((rule) => (rule.rect.top < page.height / 2 ? line.rect.bottom <= rule.rect.top : line.rect.top >= rule.rect.bottom)),
+  );
+  const parts: Part[] = groups.flatMap((group) => {
+    const rules = isRules(group);
+    if (running.includes(group)) return [];
     return [{ ...group, rules, rect: rules ? group.rect : absorbLabels(group.rect, lines) }];
   });
 
@@ -554,9 +645,18 @@ export function findFigures(
   const isImage = (group: Group) => group.imageArea >= MIN_WIDTH * MIN_HEIGHT;
   const bigEnough = (rect: Rect) =>
     width(rect) >= MIN_WIDTH && height(rect) >= MIN_HEIGHT && area(rect) <= pageArea * MAX_FIGURE_AREA;
+  const isTableRule = (part: Part) => part.rules && part.across > 0 && part.down === 0 && width(part.rect) >= MIN_TABLE_RULE;
 
   const figures: { rect: Rect; kind: FigureRegion["kind"] }[] = [];
   const used = new Set<Part>();
+  // What's been found so far, which later searches stay out of — a table's
+  // text isn't tracked line by line.
+  const taken: Rect[] = [];
+  const isTaken = (r: Rect) => taken.some((t) => overlapArea(t, r) > area(r) * 0.5);
+  const found = (rect: Rect, kind: FigureRegion["kind"]) => {
+    figures.push({ rect, kind });
+    taken.push(rect);
+  };
 
   // Smaller pieces set beside a figure (a second diagram, a gate drawn
   // apart from its circuit) belong to it too.
@@ -571,25 +671,146 @@ export function findFigures(
     return rect;
   };
 
-  // First from each caption: everything drawn between it and the body text
-  // above it (or, for a caption set above, below it) is its figure — which
-  // gathers a composite figure's scattered pieces, and a table's rules.
-  const captions = lines.flatMap((_, index) => (isCaption(lines, index) ? [captionBlock(lines, index)] : []));
+  const ruleRects = parts.filter((part) => part.rules).map((part) => part.rect);
+  const ruleBeside = (line: Line) =>
+    parts.some(
+      (part) =>
+        part.rules &&
+        overlapsH(part.rect, line.rect) &&
+        (Math.abs(part.rect.bottom - line.rect.top) <= line.lineHeight || Math.abs(line.rect.bottom - part.rect.top) <= line.lineHeight),
+    );
+  const captions: Caption[] = lines.flatMap((line, index) => {
+    if (!isCaption(lines, index) && !(BARE_ALGORITHM.test(line.text) && ruleBeside(line))) return [];
+    return [{ rect: captionBlock(lines, index, Infinity, ruleRects), kind: captionKind(line.text), lineHeight: line.lineHeight }];
+  });
 
-  // Where a caption's figure can be: from the caption up to the body text
-  // above it (or down to the text below), across the text column — which
-  // a short, centred caption doesn't span.
-  const zone = (caption: Rect, direction: "above" | "below"): Rect => {
-    const isBody = (line: Line) =>
-      !CAPTION.test(line.text) &&
-      overlapsH(line.rect, caption) &&
-      width(line.rect) >= width(caption) * 0.4 &&
-      !parts.some((part) => !part.rules && overlapArea(part.rect, line.rect) > 0);
-    const body = lines.filter(isBody).map((line) => line.rect);
-    const bounds = [...body, ...captions.filter((other) => other !== caption && overlapsH(other, caption))];
+  // The text column a caption is set in — wider than a short, centred
+  // caption — from the body text nearest above and below it.
+  const isBody = (line: Line, caption: Rect) =>
+    !CAPTION.test(line.text) &&
+    overlapsH(line.rect, caption) &&
+    width(line.rect) >= width(caption) * 0.4 &&
+    !parts.some((part) => !part.rules && overlapArea(part.rect, line.rect) > 0);
+  const columnAround = (caption: Rect): Rect => {
+    const body = lines.filter((line) => isBody(line, caption)).map((line) => line.rect);
     const above = body.filter((r) => r.bottom <= caption.top).sort((a, b) => b.bottom - a.bottom)[0];
     const below = body.filter((r) => r.top >= caption.bottom).sort((a, b) => a.top - b.top)[0];
-    const column = [above, below].filter((r): r is Rect => Boolean(r)).reduce(union, caption);
+    return [above, below].filter((r): r is Rect => Boolean(r)).reduce(union, caption);
+  };
+
+  // ---- Tables and algorithms, from their captions: the rows set against
+  // the caption, read outward from it until the body text, a wide gap, or
+  // the gap after a closing rule.
+
+  const sameRow = (a: Line, b: Line) => Math.abs(a.rect.top - b.rect.top) < Math.min(a.lineHeight, b.lineHeight) * 0.5;
+  // A line of body text: one piece spanning most of the column, where a
+  // table's row is several cells.
+  const isProse = (line: Line, column: Rect) =>
+    width(line.rect) >= width(column) * 0.6 &&
+    !lines.some((other) => other !== line && sameRow(other, line) && overlapsH(other.rect, column));
+
+  // A ruled table's or algorithm's rules span its column exactly.
+  const tableColumn = (caption: Caption): Rect => {
+    const rule = parts.find(
+      (part) =>
+        isTableRule(part) &&
+        overlapsH(part.rect, caption.rect) &&
+        (Math.abs(part.rect.top - caption.rect.bottom) <= caption.lineHeight * 1.5 ||
+          Math.abs(caption.rect.top - part.rect.bottom) <= caption.lineHeight * 1.5),
+    );
+    return rule ? union(caption.rect, rule.rect) : columnAround(caption.rect);
+  };
+
+  const rowsFrom = (caption: Caption, direction: Direction): Rows | null => {
+    const column = tableColumn(caption);
+    const below = direction === "below";
+    const lh = caption.lineHeight;
+    const items = [
+      ...lines
+        .filter((line) => overlapsH(line.rect, column) && !overlapArea(line.rect, caption.rect) && !isTaken(line.rect))
+        .map((line) => ({ rect: line.rect, line, part: undefined as Part | undefined })),
+      ...parts
+        .filter((part) => !used.has(part) && overlapsH(part.rect, column) && !isTaken(part.rect))
+        .map((part) => ({ rect: part.rect, line: undefined as Line | undefined, part })),
+    ]
+      .filter((item) => (below ? item.rect.top >= caption.rect.bottom - 1 : item.rect.bottom <= caption.rect.top + 1))
+      .sort((a, b) => (below ? a.rect.top - b.rect.top : b.rect.bottom - a.rect.bottom));
+
+    let rect: Rect | null = null;
+    let edge = below ? caption.rect.bottom : caption.rect.top;
+    let gap = 0;
+    let rows = 0;
+    let afterRule = false;
+    for (const item of items) {
+      const distance = below ? item.rect.top - edge : edge - item.rect.bottom;
+      if (distance > (afterRule ? 1 : MAX_ROW_GAP) * lh) break;
+      if (item.line && CAPTION.test(item.line.text)) break;
+      if (item.line && caption.kind === "table" && isProse(item.line, column)) break;
+      if (item.part && !item.part.rules && bigEnough(item.part.rect)) break; // a figure
+      if (!rect) gap = Math.max(0, distance);
+      rect = rect ? union(rect, item.rect) : { ...item.rect };
+      edge = below ? Math.max(edge, item.rect.bottom) : Math.min(edge, item.rect.top);
+      if (distance > 0 || item.line) rows += 1;
+      afterRule = Boolean(item.part && isTableRule(item.part));
+    }
+    if (!rect || rows < 2 || width(rect) < MIN_WIDTH || height(rect) < 15) return null;
+    return { rect, gap };
+  };
+
+  const claim = (caption: Caption, rows: Rows) => {
+    let rect = union(rows.rect, caption.rect);
+    // An algorithm's caption has a rule of its own on its other side.
+    for (const part of parts) {
+      if (!part.rules || used.has(part) || !overlapsH(part.rect, caption.rect)) continue;
+      if (overlapArea(part.rect, rect) > 0 || near(part.rect, caption.rect, caption.lineHeight)) {
+        if (near(part.rect, rect, caption.lineHeight)) rect = union(rect, part.rect);
+      }
+    }
+    for (const part of parts) if (overlapArea(part.rect, rect) >= area(part.rect) * 0.6) used.add(part);
+    found(rect, caption.kind === "algorithm" ? "algorithm" : "table");
+  };
+
+  // Which side a caption's rows are on: where there are any, and when both
+  // sides have some (two tables stacked), the side the page's other table
+  // captions are on — a document sets them all the same way — or else the
+  // nearer.
+  const tableCaptions = captions.filter((caption) => caption.kind !== "figure");
+  const sides = new Map(tableCaptions.map((caption) => [caption, { above: rowsFrom(caption, "above"), below: rowsFrom(caption, "below") }]));
+  const votes = { above: 0, below: 0 };
+  for (const { above, below } of sides.values()) {
+    if (above && !below) votes.above += 1;
+    if (below && !above) votes.below += 1;
+  }
+  const convention: Direction | null = votes.above > votes.below ? "above" : votes.below > votes.above ? "below" : null;
+  const oneSided = tableCaptions.filter((caption) => {
+    const side = sides.get(caption)!;
+    return !side.above !== !side.below;
+  });
+  for (const caption of [...oneSided, ...tableCaptions.filter((caption) => !oneSided.includes(caption))]) {
+    const above = rowsFrom(caption, "above");
+    const below = rowsFrom(caption, "below");
+    if (!above || !below) {
+      const rows = above ?? below;
+      if (rows) claim(caption, rows);
+      continue;
+    }
+    // An algorithm's caption heads it.
+    const preferred = caption.kind === "algorithm" ? "below" : (convention ?? (above.gap < below.gap ? "above" : "below"));
+    claim(caption, preferred === "above" ? above : below);
+  }
+
+  // ---- Figures, from their captions: everything drawn between the caption
+  // and the body text above it (or, for a caption set above, below it) —
+  // which gathers a composite figure's scattered pieces.
+
+  const figureCaptions = captions.filter((caption) => caption.kind === "figure").map((caption) => caption.rect);
+  const zone = (caption: Rect, direction: Direction): Rect => {
+    const column = columnAround(caption);
+    const bounds = [
+      ...lines.filter((line) => isBody(line, caption)).map((line) => line.rect),
+      ...captions.map((other) => other.rect).filter((other) => other !== caption && overlapsH(other, caption)),
+      ...taken.filter((rect) => overlapsH(rect, caption)),
+    ];
     if (direction === "above") {
       const top = Math.max(0, ...bounds.filter((r) => r.bottom <= caption.top).map((r) => r.bottom));
       return { left: column.left, right: column.right, top, bottom: caption.top };
@@ -602,7 +823,7 @@ export function findFigures(
   // under one figure isn't claimed by the figure under it instead.
   const claimed = new Set<Rect>();
   for (const direction of ["above", "below"] as const) {
-    for (const caption of captions) {
+    for (const caption of figureCaptions) {
       if (claimed.has(caption)) continue;
       const within = zone(caption, direction);
       let members = parts.filter(
@@ -613,7 +834,7 @@ export function findFigures(
           part.rect.bottom <= within.bottom + 2,
       );
       // Rules belong with the drawing they're set in (a separator between
-      // its halves); only a table is rules alone.
+      // its halves).
       const drawn = members.filter((part) => !part.rules);
       if (drawn.length) {
         const extent = drawn.map((part) => part.rect).reduce(union);
@@ -630,25 +851,72 @@ export function findFigures(
       if (textHeavy(rect, lines)) continue;
       members.forEach((part) => used.add(part));
       claimed.add(caption);
-      figures.push({ rect: union(takeSideParts(rect), caption), kind: image ? "image" : "drawing" });
+      found(union(takeSideParts(rect), caption), image ? "image" : "drawing");
     }
   }
 
-  // Then figures without a caption close by, judged on their own.
+  // ---- Tables without a caption, from their rules: a grid of crossing
+  // rules, or three or more rules stacked over the same span (top, middle
+  // and bottom rules) with no paragraph between them.
+
+  const textIn = (rect: Rect) =>
+    lines.filter((line) => overlapArea(line.rect, rect) >= area(line.rect) * 0.6).map((line) => line.rect).reduce(union, rect);
+  const withCaption = (rect: Rect) => {
+    const caption = findCaption(rect, lines, ruleRects);
+    return caption && !isTaken(caption) ? union(rect, caption) : rect;
+  };
   for (const part of parts) {
-    if (used.has(part) || part.rules || !bigEnough(part.rect) || textHeavy(part.rect, lines)) continue;
-    const caption = findCaption(part.rect, lines);
+    // Rules from edge to edge both ways, and at least one inside: a frame
+    // alone is a box of text.
+    if (used.has(part) || !part.rules || part.fullAcross < 2 || part.fullDown < 1 || isTaken(part.rect)) continue;
+    if (part.across < 3 && part.down < 3) continue;
+    if (width(part.rect) < MIN_TABLE_RULE || height(part.rect) < 20) continue;
+    used.add(part);
+    found(withCaption(textIn(part.rect)), "table");
+  }
+  const stacks: Part[][] = [];
+  const similar = (a: Rect, b: Rect) =>
+    Math.abs(a.left - b.left) <= page.width * 0.05 && Math.abs(a.right - b.right) <= page.width * 0.05;
+  const paragraphBetween = (a: Rect, b: Rect) =>
+    lines.filter(
+      (line) => line.rect.top >= a.bottom && line.rect.bottom <= b.top && overlapsH(line.rect, a) && isProse(line, a),
+    ).length >= 2;
+  const rules = parts.filter((part) => isTableRule(part) && !used.has(part) && !isTaken(part.rect));
+  for (const rule of rules.sort((a, b) => a.rect.top - b.rect.top)) {
+    const stack = stacks.find((candidate) => {
+      const last = candidate[candidate.length - 1].rect;
+      return similar(last, rule.rect) && rule.rect.top - last.bottom <= page.height * 0.4 && !paragraphBetween(last, rule.rect);
+    });
+    if (stack) stack.push(rule);
+    else stacks.push([rule]);
+  }
+  for (const stack of stacks) {
+    if (stack.length < 3) continue;
+    const rect = stack.map((part) => part.rect).reduce(union);
+    if (isTaken(rect)) continue;
+    stack.forEach((part) => used.add(part));
+    found(withCaption(textIn(rect)), "table");
+  }
+
+  // ---- Then figures without a caption close by, judged on their own.
+  for (const part of parts) {
+    if (used.has(part) || part.rules || !bigEnough(part.rect) || textHeavy(part.rect, lines) || isTaken(part.rect)) continue;
+    const caption = findCaption(part.rect, lines, ruleRects);
     if (!isImage(part) && part.marks < (caption ? MIN_CAPTIONED_MARKS : MIN_MARKS)) continue;
     used.add(part);
     let rect = part.rect;
-    if (caption) rect = union(takeSideParts(rect), caption);
-    figures.push({ rect, kind: isImage(part) ? "image" : "drawing" });
+    if (caption && !isTaken(caption)) rect = union(takeSideParts(rect), caption);
+    found(rect, isImage(part) ? "image" : "drawing");
   }
 
-  // Subfigures that share a caption end up overlapping: one figure.
+  // Subfigures that share a caption end up overlapping: one figure. (Tables
+  // and algorithms stay as they are.)
+  const isPicture = (kind: FigureRegion["kind"]) => kind === "image" || kind === "drawing";
   const result: typeof figures = [];
   for (const figure of figures) {
-    const into = result.find((other) => overlapArea(other.rect, figure.rect) > 0);
+    const into = isPicture(figure.kind)
+      ? result.find((other) => isPicture(other.kind) && overlapArea(other.rect, figure.rect) > 0)
+      : undefined;
     if (into) {
       into.rect = union(into.rect, figure.rect);
       if (figure.kind === "image") into.kind = "image";

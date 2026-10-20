@@ -3990,7 +3990,7 @@
   border-bottom: 1px solid color-mix(in srgb, var(--link) 55%, transparent);
 }
 
-/* Figures (see FigureMarks): outlined on hover as a click target, and, once
+/* Figures and tables (see FigureMarks): outlined on hover as a click target, and, once
    clicked, drawn like the area selection a drag makes while its tip is
    open. Below the highlight layers, so existing highlights stay on top. */
 .figure-marks-layer {

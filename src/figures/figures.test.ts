@@ -175,3 +175,105 @@ test("rotated text is placed along its rotation", () => {
     { left: 90, top: 480, width: 10, height: 20 },
   );
 });
+
+// ---- Tables and algorithms ------------------------------------------------------------
+
+// A booktabs-style table: top, middle and bottom rules from `left` to
+// `right`, a header row and `rows` rows of three cells, starting at `top`.
+function table(drawing: Drawing, top: number, rows: number, left = 100, right = 500): TextRun[] {
+  const text: TextRun[] = [];
+  drawing.rect(left, top, right - left, 0.4);
+  text.push(run("Name", left + 5, top + 4), run("Value", left + 150, top + 4), run("Error", left + 300, top + 4));
+  drawing.rect(left, top + 17, right - left, 0.4);
+  for (let i = 0; i < rows; i += 1) {
+    const y = top + 21 + i * 12;
+    text.push(run(`row ${i}`, left + 5, y), run(`${i}.25`, left + 150, y), run(`0.0${i}`, left + 300, y));
+  }
+  drawing.rect(left, top + 21 + rows * 12 + 2, right - left, 0.4);
+  return text;
+}
+
+test("a table with its caption above is found, caption and all", () => {
+  const drawing = new Drawing();
+  const text = [
+    ...paragraph(100, 5),
+    run("Table 1. Results on the test set.", 100, 180),
+    ...table(drawing, 196, 5),
+    ...paragraph(300, 5),
+  ];
+  const figures = findFigures(drawing, OPS, PAGE, text).map(units);
+  assert.equal(figures.length, 1);
+  assert.equal(figures[0].kind, "table");
+  assert.ok(figures[0].top <= 180 && figures[0].top >= 170, "from the caption");
+  assert.ok(figures[0].bottom >= 279 && figures[0].bottom < 300, "to the bottom rule, not the paragraph after");
+});
+
+test("a table with its caption below is found", () => {
+  const drawing = new Drawing();
+  const text = [...paragraph(100, 5), ...table(drawing, 180, 4), run("Table 2: Timings.", 100, 260), ...paragraph(290, 5)];
+  const figures = findFigures(drawing, OPS, PAGE, text).map(units);
+  assert.equal(figures.length, 1);
+  assert.equal(figures[0].kind, "table");
+  assert.ok(figures[0].top <= 180 && figures[0].bottom >= 270 && figures[0].bottom < 290);
+});
+
+test("two tables stacked, captions above, each get their own rows", () => {
+  const drawing = new Drawing();
+  const text = [
+    run("Table 5. The first set.", 100, 100),
+    ...table(drawing, 116, 4),
+    run("Table 6. The second set.", 100, 200),
+    ...table(drawing, 216, 3),
+    ...paragraph(320, 4),
+  ];
+  const figures = findFigures(drawing, OPS, PAGE, text).map(units).sort((a, b) => a.top - b.top);
+  assert.equal(figures.length, 2);
+  assert.ok(figures[0].top <= 100 && figures[0].bottom < 200, "the first stops before the second caption");
+  assert.ok(figures[1].top <= 200 && figures[1].top > 190 && figures[1].bottom >= 275);
+});
+
+test("an uncaptioned ruled table is found from its rules", () => {
+  const drawing = new Drawing();
+  const text = [...paragraph(100, 5), ...table(drawing, 180, 6), ...paragraph(300, 5)];
+  const figures = findFigures(drawing, OPS, PAGE, text).map(units);
+  assert.equal(figures.length, 1);
+  assert.equal(figures[0].kind, "table");
+});
+
+test("a grid table is found; a framed box of text is not", () => {
+  const grid = new Drawing();
+  // Four rows of three cells, vertical rules drawn a row at a time.
+  for (let r = 0; r <= 4; r += 1) grid.rect(100, 200 + r * 15, 300, 0.4);
+  for (let r = 0; r < 4; r += 1) for (const x of [100, 200, 300, 400]) grid.rect(x, 200 + r * 15, 0.4, 15);
+  const cells = [0, 1, 2, 3].flatMap((r) => [run(`a${r}`, 110, 203 + r * 15), run(`b${r}`, 210, 203 + r * 15)]);
+  const figures = findFigures(grid, OPS, PAGE, [...paragraph(100, 5), ...cells]).map(units);
+  assert.equal(figures.length, 1);
+  assert.equal(figures[0].kind, "table");
+
+  const frame = new Drawing().rect(100, 200, 300, 0.4).rect(100, 300, 300, 0.4).rect(100, 200, 0.4, 100).rect(400, 200, 0.4, 100);
+  assert.deepEqual(findFigures(frame, OPS, PAGE, paragraph(205, 7, 105).map((r) => ({ ...r, rect: { ...r.rect, width: 280 } }))), []);
+});
+
+test("an algorithm captioned between rules is found, without punctuation after its number", () => {
+  const drawing = new Drawing().rect(300, 100, 240, 0.4).rect(300, 114, 240, 0.4);
+  const text = [run("Algorithm 1 Game Ridge Rider", 302, 102)];
+  for (let i = 0; i < 6; i += 1) text.push(run(`${i + 1}: step ${i}`, 305 + (i % 3) * 10, 118 + i * 12));
+  drawing.rect(300, 118 + 6 * 12 + 2, 240, 0.4);
+  text.push(run("4. Experiments", 300, 215), ...paragraph(230, 4, 300).map((r) => ({ ...r, rect: { ...r.rect, width: 240 } })));
+  const figures = findFigures(drawing, OPS, PAGE, text).map(units);
+  assert.equal(figures.length, 1);
+  assert.equal(figures[0].kind, "algorithm");
+  assert.ok(figures[0].top <= 100 && figures[0].bottom >= 192 && figures[0].bottom < 215);
+});
+
+test("letters drawn as bitmaps are text, not a picture", () => {
+  const drawing = new Drawing();
+  for (let i = 0; i < 10; i += 1) {
+    drawing
+      .op(OPS.save)
+      .op(OPS.transform, [30, 0, 0, 7, 100 + (i % 5) * 40, 800 - 300 - Math.floor(i / 5) * 12])
+      .op(OPS.paintImageMaskXObject, [{}])
+      .op(OPS.restore);
+  }
+  assert.deepEqual(findFigures(drawing, OPS, PAGE, paragraph(280, 4)), []);
+});
