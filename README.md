@@ -1,7 +1,7 @@
 # Knoway Reader
 
 Knoway Reader is a PDF and EPUB reader for studying dense documents: textbooks,
-papers, lecture notes. It does everything you'd expect for highlighting and
+papers, lecture notes, and articles saved from the web. It does everything you'd expect for highlighting and
 note-taking, and adds an AI study layer. You can select a passage and "deep
 dive" into it, ask questions about the whole document, and build a glossary of
 its terms and notation. Answers are grounded in the document itself and cite
@@ -24,6 +24,31 @@ and Linux, but those builds haven't been tried yet.
   Known gaps: CJK text and emoji aren't drawn (the bundled fonts don't cover
   them), small caps come out as ordinary letters, and right-to-left scripts
   aren't laid out right to left.
+- **Add from URL**: save a web page (a blog post, an article, documentation)
+  as a document, or add a PDF or EPUB straight from a link. Paste a link
+  anywhere on the library, drop one in from a browser, or use the button.
+  - A page becomes a PDF the same way an EPUB does, set like the rest of the
+    library. The article is found with Mozilla's Readability (Firefox's
+    Reader View). Anything Readability drops from inside the article (a code
+    sample, a table, a note, words cut from the middle of a paragraph) is
+    checked and put back. The page's own navigation, ads and related links
+    stay out.
+  - Figures the page draws with CSS (boxes and arrows in styled HTML) are
+    captured as pictures from a render of the page with its own stylesheets.
+    Their words stay searchable, so Ask and the glossary can use them.
+  - Pictures are saved into the document. Video, audio and embeds (YouTube,
+    tweets, CodePens, Gists) become a link with a thumbnail, since a PDF can't
+    play them. Formulas are kept as their TeX source.
+  - When something couldn't be kept exactly (a picture that wouldn't
+    download, a video saved as a link), you're told before the document
+    opens. Otherwise it opens straight away.
+  - An arXiv abstract page fetches the paper's PDF, titled from the abstract
+    page. A paper's landing page that offers a PDF asks which one you want.
+  - The page is saved as it was the day you added it, with its address, its
+    author and date, and **Open original page** in the View menu. Adding the
+    same address again offers the saved copy, or a fresh one if it changed.
+  - Known gaps: pages that build their content with JavaScript, and pages
+    behind a sign-in or paywall, can't be saved yet.
 - "Continue reading" brings you back to where you left off.
 - Export and import all your notes as a single backup file.
 
@@ -177,8 +202,11 @@ src/            React + TypeScript frontend
   grounding/    Retrieval, prompt sources and citation checking
   xref/         Cross-reference detection and previews
   library/      Library home, import, backup
+  web/          Add from URL: fetching, finding the article, capturing figures,
+                and building the document (see web/index.ts for the stages)
   storage/      Per-document storage (files on desktop, IndexedDB on web)
-server/         Express API server that calls the model providers
+server/         Express API server that calls the model providers, and fetches
+                web pages for Add from URL (web.js)
   providers/    One module per provider
 src-tauri/      Tauri desktop shell
 scripts/        Build and eval scripts
@@ -196,6 +224,8 @@ Completions API (Groq, Together, Fireworks, and so on) can be added the way
 
 React, TypeScript, Vite, Express, Tauri,
 [react-pdf-highlighter-plus](https://www.npmjs.com/package/react-pdf-highlighter-plus)
-(patched via `patch-package`), pdf.js, pdf-lib, fflate, KaTeX and Mermaid.
+(patched via `patch-package`), pdf.js, pdf-lib, fflate, KaTeX, Mermaid,
+[Readability](https://github.com/mozilla/readability) and
+[html2canvas-pro](https://github.com/yorickshan/html2canvas-pro).
 EPUBs are set in [Literata](https://github.com/googlefonts/literata) and
 [DejaVu](https://dejavu-fonts.github.io) (both under open font licenses).

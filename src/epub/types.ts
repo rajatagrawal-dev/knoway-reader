@@ -20,6 +20,10 @@ export interface TextRun {
   size: number; // px
   color: Rgb;
   keepWithNext?: boolean; // part of a heading
+  // Laid out and kept in the PDF as text — selectable, searchable, read by
+  // Ask — but not drawn: the words of a picture, over the picture
+  // (data-kr-invisible; see src/web/ for figures captured as images).
+  invisible?: boolean;
 }
 
 export type ImageSource = { path: string } | { svg: string }; // a file in the book, or an inline <svg>

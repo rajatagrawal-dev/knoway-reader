@@ -355,6 +355,7 @@ export async function createLayout(
       const preserve = /^(pre|pre-wrap|break-spaces)$/.test(style.whiteSpace);
       const transform = style.textTransform;
       const keepWithNext = parent.closest(HEADING) !== null;
+      const invisible = parent.closest("[data-kr-invisible]") !== null;
 
       const data = node.data;
       // Each word (in preformatted text, each stretch between tabs and line
@@ -377,7 +378,14 @@ export async function createLayout(
           const step = data.codePointAt(i)! > 0xffff ? 2 : 1;
           range.setStart(node, i);
           range.setEnd(node, i + step);
-          const rect = range.getBoundingClientRect();
+          // The character's own box. WebKit also reports an empty box at the
+          // end of the previous line for a character that starts a wrapped
+          // line, and the bounding box of the two would put it a line up.
+          const boxes = [...range.getClientRects()];
+          const rect =
+            boxes.filter((box) => box.width > 0).pop() ??
+            boxes.filter((box) => box.height > 0).pop() ??
+            range.getBoundingClientRect();
           if (rect.width > 0 || rect.height > 0) pieces.push({ start: i, end: i + step, rect });
           i += step;
         }
@@ -402,6 +410,7 @@ export async function createLayout(
             size,
             color: color ? onWhite(color) : [0, 0, 0],
             keepWithNext,
+            ...(invisible ? { invisible } : {}),
             weight: style.fontWeight,
             italic,
           });

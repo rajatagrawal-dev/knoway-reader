@@ -13,7 +13,7 @@ export interface DiveMessage {
 // (tauri://localhost, or http://tauri.localhost on Windows) instead, so
 // "/api/..." has to be pointed at the bundled server (see src-tauri/src/lib.rs)
 // explicitly.
-const API_BASE =
+export const API_BASE =
   typeof window !== "undefined" &&
   (window.location.protocol === "tauri:" || window.location.hostname === "tauri.localhost")
     ? "http://localhost:4300"

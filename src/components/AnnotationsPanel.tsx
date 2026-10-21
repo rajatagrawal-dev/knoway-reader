@@ -9,6 +9,7 @@ import {
   type RefObject,
   type TextareaHTMLAttributes,
 } from "react";
+import { showNotice } from "./notices";
 import {
   Check,
   ChevronDown,
@@ -401,7 +402,7 @@ function useCopyFeedback(): [boolean, (text: string) => void] {
         window.clearTimeout(timerRef.current);
         timerRef.current = window.setTimeout(() => setCopied(false), 1200);
       })
-      .catch(() => alert("Couldn't copy to the clipboard."));
+      .catch(() => showNotice("Couldn't copy to the clipboard."));
   };
   return [copied, copy];
 }

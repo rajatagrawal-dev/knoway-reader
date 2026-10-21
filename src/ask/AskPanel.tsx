@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, Pencil, SquarePen, Trash2 } from "lucide-react";
+import { History, Pencil, SquarePen, Trash2, X } from "lucide-react";
 import { formatPageLabel } from "../pageLabels";
 import { answerGrounding, citedSources, parseAnswer } from "../grounding/citations";
 import AnswerMarkdown from "../grounding/AnswerMarkdown";
@@ -251,6 +251,9 @@ function HistoryMenu({
   onClose: () => void;
 }) {
   const [renaming, setRenaming] = useState<string | null>(null);
+  // Deleting asks first, right here (window.confirm never shows in the
+  // desktop app's webview: it just answers no).
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -300,21 +303,34 @@ function HistoryMenu({
                 </span>
               </button>
             )}
-            <span className="ask-thread-actions">
-              <button type="button" className="ask-icon-button" title="Rename" onClick={() => setRenaming(thread.id)}>
-                <Pencil width={13} height={13} />
-              </button>
-              <button
-                type="button"
-                className="ask-icon-button"
-                title="Delete"
-                onClick={() => {
-                  if (window.confirm(`Delete "${thread.title}"?`)) store.remove(thread.id);
-                }}
-              >
-                <Trash2 width={13} height={13} />
-              </button>
-            </span>
+            {confirmingDelete === thread.id ? (
+              <span className="ask-thread-actions is-confirming">
+                <button
+                  type="button"
+                  className="ask-thread-confirm-delete"
+                  title={`Delete “${thread.title}”`}
+                  autoFocus
+                  onClick={() => {
+                    setConfirmingDelete(null);
+                    store.remove(thread.id);
+                  }}
+                >
+                  Delete
+                </button>
+                <button type="button" className="ask-icon-button" title="Keep it" onClick={() => setConfirmingDelete(null)}>
+                  <X width={13} height={13} />
+                </button>
+              </span>
+            ) : (
+              <span className="ask-thread-actions">
+                <button type="button" className="ask-icon-button" title="Rename" onClick={() => setRenaming(thread.id)}>
+                  <Pencil width={13} height={13} />
+                </button>
+                <button type="button" className="ask-icon-button" title="Delete" onClick={() => setConfirmingDelete(thread.id)}>
+                  <Trash2 width={13} height={13} />
+                </button>
+              </span>
+            )}
           </li>
         ))}
       </ul>

@@ -1,5 +1,6 @@
 import express from "express";
 import { MAX_REFERENCE_WORDS } from "./reference.js";
+import { webFetchHandler } from "./web.js";
 
 // Streams a model reply as SSE: one {text} frame per delta, then a final
 // {done, text} frame with the full reply — or an {error} frame, since the
@@ -40,8 +41,9 @@ function tooLarge(res, length) {
 // Stateless by design: everything a request needs comes with it, and
 // everything the reader keeps is stored client-side — this server is an LLM
 // proxy, plus a (cached) proxy for the glossary's dictionary lookups
-// (`lookupReference`, see ./reference.js).
-export function buildApp({ models, lookupReference }) {
+// (`lookupReference`, see ./reference.js) and for web pages being added to
+// the library (./web.js).
+export function buildApp({ models, lookupReference, webFetch }) {
   const app = express();
 
   // The packaged desktop build loads the frontend from a custom scheme
@@ -135,6 +137,10 @@ export function buildApp({ models, lookupReference }) {
       res.json({ dictionary: null, encyclopedia: [] });
     }
   });
+
+  // "Add from URL": a web page and what it loads, fetched on the reader's
+  // behalf (./web.js). `webFetch` swaps in a fake fetch and DNS for tests.
+  app.get("/api/web/fetch", webFetchHandler(webFetch));
 
   app.post("/api/dive/quick", async (req, res) => {
     const system = (req.body?.system || "").toString();

@@ -50,6 +50,21 @@ export interface DocumentMeta {
   // Notes imported (from a backup) for a PDF that isn't in this library yet:
   // importing that PDF brings them together.
   fileMissing?: boolean;
+  // Where a document added from the web came from (src/web/).
+  source?: DocumentSource;
+}
+
+export interface DocumentSource {
+  kind: "web";
+  // "article": a web page, saved as a PDF of its text and pictures;
+  // "pdf" / "epub": a file the address led straight to.
+  format: "article" | "pdf" | "epub";
+  url: string; // as the reader gave it
+  finalUrl: string; // after redirects
+  canonicalUrl: string; // what's compared to tell if it's already in the library
+  siteName?: string;
+  publishedAt?: string; // as the page states it (ISO when it can be read as a date)
+  fetchedAt: string; // ISO
 }
 
 export interface LibraryStorage {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Download, FolderOpen, MoreHorizontal, Plus, Search, Upload } from "lucide-react";
+import { Download, FolderOpen, Globe, MoreHorizontal, Plus, Search, Upload } from "lucide-react";
 import type { DocumentMeta, LibraryStorage } from "../storage/types";
 import {
   continueReading,
@@ -12,9 +12,12 @@ import {
 } from "./library";
 import { importFiles } from "./importFiles";
 import { canRevealFiles, revealInFileManager } from "./desktop";
+import AddFromUrlDialog from "../web/AddFromUrlDialog";
+import { looksLikeUrl } from "../web/url";
 
 // The library: every PDF and EPUB the reader has added, what they were last reading,
-// and the way to add more. Replaces the old single-file upload screen.
+// and the way to add more — files, or pages from the web (src/web/). Replaces
+// the old single-file upload screen.
 
 const SORT_KEY = "library-sort";
 const NOTICE_MS = 7000;
@@ -48,6 +51,9 @@ export default function LibraryHome({
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  // "Add from URL", with the address it opened with; `autoStart` when that
+  // came from a paste or a drop rather than the button.
+  const [urlDialog, setUrlDialog] = useState<{ url: string; autoStart: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const notesInputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -101,6 +107,21 @@ export default function LibraryHome({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // A web address pasted anywhere on the library (not into a field) adds it.
+  useEffect(() => {
+    if (urlDialog) return;
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, [contenteditable]")) return;
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (!looksLikeUrl(text)) return;
+      event.preventDefault();
+      setUrlDialog({ url: text.trim(), autoStart: true });
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [urlDialog]);
+
   const addFiles = async (files: File[]) => {
     if (files.length === 0 || importing) return;
     setImporting({ done: 0, total: files.length });
@@ -129,6 +150,15 @@ export default function LibraryHome({
     event.preventDefault();
     dragDepth.current = 0;
     setDragging(false);
+    if (event.dataTransfer.files.length === 0) {
+      // A link dragged in from a browser.
+      const link = (event.dataTransfer.getData("text/uri-list") || event.dataTransfer.getData("text/plain"))
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line && !line.startsWith("#"));
+      if (link && looksLikeUrl(link)) setUrlDialog({ url: link, autoStart: true });
+      return;
+    }
     void addFiles([...event.dataTransfer.files]);
   };
 
@@ -179,9 +209,15 @@ export default function LibraryHome({
       await storage.putMeta({ ...doc, title });
       await reload();
     },
+    // Confirmed in the card's menu first (window.confirm never shows in the
+    // desktop app's webview: it just answers no).
     onRemove: async (doc: DocumentMeta) => {
-      if (!window.confirm(`Remove “${doc.title}” from your library? Its highlights, notes and questions go too.`)) return;
-      await storage.removeDocument(doc.docId);
+      try {
+        await storage.removeDocument(doc.docId);
+      } catch (error) {
+        console.error(error);
+        setNotice(`Couldn't remove “${doc.title}”${error instanceof Error && error.message ? `: ${error.message}` : "."}`);
+      }
       await reload();
     },
   };
@@ -190,7 +226,8 @@ export default function LibraryHome({
     <div
       className={`library${dragging ? " is-dragging" : ""}`}
       onDragEnter={(event) => {
-        if (![...event.dataTransfer.types].includes("Files")) return;
+        const types = [...event.dataTransfer.types];
+        if (!types.includes("Files") && !types.includes("text/uri-list")) return;
         dragDepth.current += 1;
         setDragging(true);
       }}
@@ -214,6 +251,14 @@ export default function LibraryHome({
         </select>
         <button type="button" className="library-add" onClick={() => fileInputRef.current?.click()} title="Add PDFs or EPUBs (⌘O)">
           <Plus width={16} height={16} /> Add books
+        </button>
+        <button
+          type="button"
+          className="library-add"
+          onClick={() => setUrlDialog({ url: "", autoStart: false })}
+          title="Add a web page, or a PDF or EPUB from the web (or paste a link anywhere here)"
+        >
+          <Globe width={16} height={16} /> Add from URL
         </button>
         <div className="library-menu-anchor">
           <button type="button" className="library-icon-button" onClick={() => setMenuOpen((open) => !open)} title="More">
@@ -285,7 +330,9 @@ export default function LibraryHome({
           <button type="button" className="library-empty" onClick={() => fileInputRef.current?.click()}>
             <Plus width={28} height={28} />
             <span className="library-empty-title">Add your first PDF or EPUB</span>
-            <span className="library-empty-hint">Drop PDFs or EPUBs anywhere here, or click to choose files.</span>
+            <span className="library-empty-hint">
+              Drop PDFs or EPUBs anywhere here, or click to choose files. To save a web page, paste its link.
+            </span>
           </button>
         ) : (
           <>
@@ -315,8 +362,22 @@ export default function LibraryHome({
 
       {dragging ? (
         <div className="library-drop-overlay" aria-hidden="true">
-          Drop PDFs or EPUBs to add them
+          Drop PDFs, EPUBs or links to add them
         </div>
+      ) : null}
+
+      {urlDialog ? (
+        <AddFromUrlDialog
+          storage={storage}
+          initialUrl={urlDialog.url}
+          autoStart={urlDialog.autoStart}
+          onClose={() => setUrlDialog(null)}
+          onChanged={() => void reload()}
+          onOpen={(meta) => {
+            setUrlDialog(null);
+            onOpen(meta);
+          }}
+        />
       ) : null}
     </div>
   );
@@ -363,7 +424,12 @@ function DocumentCard({
   onRemove: (doc: DocumentMeta) => Promise<void>;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    setConfirmingRemove(false);
+  }, []);
   const thumbnail = thumbnails[doc.docId];
   const progress = readingProgress(doc);
 
@@ -410,8 +476,30 @@ function DocumentCard({
         <button type="button" className="library-icon-button" onClick={() => setMenuOpen((open) => !open)} title="More">
           <MoreHorizontal width={16} height={16} />
         </button>
-        {menuOpen ? (
-          <Menu onClose={() => setMenuOpen(false)}>
+        {menuOpen && confirmingRemove ? (
+          <Menu onClose={closeMenu}>
+            <p className="library-menu-confirm">
+              Remove “{doc.title}”? Its highlights, notes and questions go too.
+            </p>
+            <div className="library-menu-confirm-actions">
+              <button type="button" onClick={closeMenu}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="is-danger"
+                autoFocus
+                onClick={() => {
+                  closeMenu();
+                  void onRemove(doc);
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </Menu>
+        ) : menuOpen ? (
+          <Menu onClose={closeMenu}>
             <button
               type="button"
               onClick={() => {
@@ -435,10 +523,7 @@ function DocumentCard({
             <button
               type="button"
               className="is-danger"
-              onClick={() => {
-                setMenuOpen(false);
-                void onRemove(doc);
-              }}
+              onClick={() => setConfirmingRemove(true)}
             >
               Remove from library
             </button>

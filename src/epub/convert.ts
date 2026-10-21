@@ -5,7 +5,7 @@ import serifUrl from "@expo-google-fonts/literata/400Regular/Literata_400Regular
 import monoBoldUrl from "dejavu-fonts-ttf/ttf/DejaVuSansMono-Bold.ttf?url";
 import monoUrl from "dejavu-fonts-ttf/ttf/DejaVuSansMono.ttf?url";
 import fallbackUrl from "dejavu-fonts-ttf/ttf/DejaVuSans.ttf?url";
-import { readEpub } from "./book.ts";
+import { readEpub, type EpubBook } from "./book.ts";
 import { createLayout } from "./layout.ts";
 import { findEntry, sniffImageType } from "./paths.ts";
 import type { FontName, ImageSource, LaidOutChapter } from "./types.ts";
@@ -84,7 +84,12 @@ export interface ConvertedEpub {
 }
 
 export async function convertEpubToPdf(bytes: Uint8Array): Promise<ConvertedEpub> {
-  const book = readEpub(bytes);
+  return convertBookToPdf(readEpub(bytes));
+}
+
+// The conversion proper, for a book already unpacked — or put together some
+// other way: a web page arrives here as a one-chapter book (src/web/book.ts).
+export async function convertBookToPdf(book: EpubBook, options: { producer?: string } = {}): Promise<ConvertedEpub> {
   const fonts = await loadFonts();
   const column = columnSize(BOOK_PAGE);
   const session = await createLayout(book, fonts, column);
@@ -139,6 +144,7 @@ export async function convertEpubToPdf(bytes: Uint8Array): Promise<ConvertedEpub
     chapters,
     fonts,
     loadImage,
+    ...(options.producer ? { producer: options.producer } : {}),
   });
   return { pdf, title: book.title, authors: book.authors };
 }

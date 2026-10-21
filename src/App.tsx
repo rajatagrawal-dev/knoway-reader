@@ -48,6 +48,8 @@ import { openDocument, titleFromFileName } from "./storage/documents";
 import { isEpub, pdfForEpub } from "./epub";
 import type { DocumentMeta } from "./storage/types";
 import LibraryHome from "./library/LibraryHome";
+import { showNotice } from "./components/notices";
+import { openExternal } from "./library/desktop";
 import { pickTitle } from "./library/library";
 import { readPdfInfoFromDocument } from "./library/pdfInfo";
 import { sentenceAround, type XrefRef, type XrefTarget } from "./xref/detect";
@@ -99,6 +101,7 @@ interface LoadedPdf {
   fileName: string;
   docId: string; // content hash — the key for everything stored about it
   title: string; // as the library shows it
+  sourceUrl?: string; // the web page it was saved from (src/web/)
 }
 
 const getNextId = () => crypto.randomUUID();
@@ -593,7 +596,7 @@ export default function App() {
         );
       } catch (error) {
         console.error(error);
-        alert("Failed to open the PDF from the library.");
+        showNotice("Failed to open the PDF from the library.");
         return;
       }
 
@@ -613,7 +616,13 @@ export default function App() {
       // Before the viewer mounts: the text index cache is keyed by it.
       setActiveDocument(docId);
       openMetaRef.current = opened.meta;
-      setLoadedPdf({ source: bytes, fileName, docId, title: opened.meta.title });
+      setLoadedPdf({
+        source: bytes,
+        fileName,
+        docId,
+        title: opened.meta.title,
+        ...(opened.meta.source ? { sourceUrl: opened.meta.source.canonicalUrl || opened.meta.source.url } : {}),
+      });
       // Prime with the arrays actually put in state, so the save effects
       // see them as already stored and don't write them straight back.
       docDataWriter.prime(docId, "highlights", loadedHighlights);
@@ -661,7 +670,7 @@ export default function App() {
       try {
         bytes = new Uint8Array(await file.arrayBuffer());
       } catch {
-        alert(`Failed to read the ${isEpub(file) ? "EPUB" : "PDF"} file.`);
+        showNotice(`Failed to read the ${isEpub(file) ? "EPUB" : "PDF"} file.`);
         return;
       }
       if (!isEpub(file)) {
@@ -676,7 +685,7 @@ export default function App() {
         epub = await pdfForEpub(getStorage(), bytes);
       } catch (error) {
         console.error(error);
-        alert(error instanceof Error && error.message ? error.message : "Failed to read the EPUB file.");
+        showNotice(error instanceof Error && error.message ? error.message : "Failed to read the EPUB file.");
         return;
       } finally {
         document.documentElement.style.cursor = "";
@@ -692,7 +701,7 @@ export default function App() {
         .getFile(meta.docId)
         .catch(() => null);
       if (!bytes) {
-        alert(`The PDF of “${meta.title}” couldn't be read from the library.`);
+        showNotice(`The PDF of “${meta.title}” couldn't be read from the library.`);
         return;
       }
       await openPdf(bytes, meta.fileName, { docId: meta.docId });
@@ -897,7 +906,7 @@ export default function App() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error(error);
-      alert("Failed to export PDF. See console for details.");
+      showNotice("Failed to export PDF. See console for details.");
     } finally {
       setExporting(false);
     }
@@ -1905,14 +1914,27 @@ export default function App() {
           onToggleNotesCollapsed: () => setNotesCollapsed((value) => !value),
           theme,
           onToggleTheme: toggleTheme,
-          footer: SHOW_EXPORT_BUTTON ? (
-            <>
-              <div className="rail-popover-separator" />
-              <button type="button" className="view-menu-action" onClick={handleExport} disabled={exporting}>
-                {exporting ? "Exporting…" : "Export PDF"}
-              </button>
-            </>
-          ) : null,
+          footer:
+            loadedPdf?.sourceUrl || SHOW_EXPORT_BUTTON ? (
+              <>
+                <div className="rail-popover-separator" />
+                {loadedPdf?.sourceUrl ? (
+                  <button
+                    type="button"
+                    className="view-menu-action"
+                    onClick={() => void openExternal(loadedPdf.sourceUrl!)}
+                    title={loadedPdf.sourceUrl}
+                  >
+                    Open original page
+                  </button>
+                ) : null}
+                {SHOW_EXPORT_BUTTON ? (
+                  <button type="button" className="view-menu-action" onClick={handleExport} disabled={exporting}>
+                    {exporting ? "Exporting…" : "Export PDF"}
+                  </button>
+                ) : null}
+              </>
+            ) : null,
         }}
       />
 

@@ -6,7 +6,11 @@ import {
   PDFNull,
   PDFNumber,
   PDFString,
+  popGraphicsState,
+  pushGraphicsState,
   rgb,
+  setTextRenderingMode,
+  TextRenderingMode,
   type PDFFont,
   type PDFImage,
   type PDFPage,
@@ -62,6 +66,7 @@ export interface WritePdfInput {
   // it redrawn as a PNG whatever it was.
   loadImage(source: ImageSource, width: number, height: number, redraw: boolean): Promise<LoadedImage | null>;
   page?: PageGeometry;
+  producer?: string; // what the PDF was made from, for its metadata
 }
 
 // Ligatures and kerning off, as in the layout (layout.ts): glyphs advance
@@ -87,7 +92,7 @@ export async function writePdf(input: WritePdfInput): Promise<Uint8Array> {
   if (input.authors.length > 0) pdf.setAuthor(input.authors.join(", "));
   if (input.language) pdf.setLanguage(input.language);
   pdf.setCreator("Knoway Reader");
-  pdf.setProducer("Knoway Reader (from EPUB)");
+  pdf.setProducer(input.producer ?? "Knoway Reader (from EPUB)");
 
   // ---- Fonts: embedded (subset) on first use ----
   const embedded = new Map<FontName, { font: PDFFont; glyphs: Set<number> }>();
@@ -143,7 +148,11 @@ export async function writePdf(input: WritePdfInput): Promise<Uint8Array> {
     let segmentFont: PDFFont | null = null;
     const flush = () => {
       if (segment && segmentFont) {
+        // Text render mode 3 — as in a scanned page's OCR layer — draws
+        // nothing but keeps the text.
+        if (run.invisible) page.pushOperators(pushGraphicsState(), setTextRenderingMode(TextRenderingMode.Invisible));
         page.drawText(segment, { x, y, size, font: segmentFont, color });
+        if (run.invisible) page.pushOperators(popGraphicsState());
         x += segmentFont.widthOfTextAtSize(segment, size);
       }
       segment = "";
