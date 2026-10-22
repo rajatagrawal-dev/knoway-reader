@@ -37,6 +37,25 @@ fn spawn_server(resource_path: &std::path::Path) -> std::io::Result<Child> {
     .spawn()
 }
 
+// The app was renamed from Knoway Reader, whose identifier put its data folder
+// at .../com.knowayreader.app. Move that library across once, the first time
+// the renamed app starts and finds no library of its own.
+const LEGACY_IDENTIFIER: &str = "com.knowayreader.app";
+
+fn migrate_legacy_library(app: &tauri::AppHandle) {
+  let Ok(data_dir) = app.path().app_data_dir() else { return };
+  let Some(parent) = data_dir.parent() else { return };
+  let legacy = parent.join(LEGACY_IDENTIFIER).join("library");
+  let current = data_dir.join("library");
+  if current.exists() || !legacy.is_dir() {
+    return;
+  }
+  let moved = std::fs::create_dir_all(&data_dir).and_then(|_| std::fs::rename(&legacy, &current));
+  if let Err(err) = moved {
+    eprintln!("Knowbel Reader: couldn't move the library from {}: {err}", legacy.display());
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -48,6 +67,7 @@ pub fn run() {
     // "Show in Finder" for a document's folder in the library.
     .plugin(tauri_plugin_opener::init())
     .setup(|app| {
+      migrate_legacy_library(app.handle());
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -71,7 +91,7 @@ pub fn run() {
           }
           Err(err) => {
             eprintln!(
-              "Knoway Reader: failed to start the Deep Dive server (is Node.js installed and on PATH?): {err}"
+              "Knowbel Reader: failed to start the Deep Dive server (is Node.js installed and on PATH?): {err}"
             );
           }
         }

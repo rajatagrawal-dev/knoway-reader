@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
 
-const THEME_STORAGE_KEY = "knowayreader-theme";
+const THEME_STORAGE_KEY = "knowbelreader-theme";
 
 // A saved choice wins; otherwise start in dark.
 function readInitialTheme(): Theme {

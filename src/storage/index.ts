@@ -18,7 +18,7 @@ import type { LibraryStorage } from "./types";
 export type { DocDataKind, DocumentMeta, LibraryStorage, ReadingView } from "./types";
 
 // The Tauri fs plugin, with every path relative to the app data folder
-// (e.g. ~/Library/Application Support/com.knowayreader.app on macOS). The
+// (e.g. ~/Library/Application Support/com.knowbelreader.app on macOS). The
 // capability in src-tauri/capabilities/default.json scopes it to
 // $APPDATA/library/**.
 const tauriFs: DesktopFs = {

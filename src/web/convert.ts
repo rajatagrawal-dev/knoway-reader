@@ -207,15 +207,15 @@ export async function convertArticle(
   if (textLength < 200 && pictures === 0) {
     throw new WebImportError(
       scripted
-        ? "This page builds its content with JavaScript, which Knoway can't run yet, so there was nothing to save."
+        ? "This page builds its content with JavaScript, which Knowbel can't run yet, so there was nothing to save."
         : "Couldn't find any readable content on this page.",
     );
   }
   if (scripted && textLength < 1500) {
-    report.warnings.push("This page builds some of its content with JavaScript, which Knoway can't run yet. Parts of it may be missing.");
+    report.warnings.push("This page builds some of its content with JavaScript, which Knowbel can't run yet. Parts of it may be missing.");
   }
   if (usedFallback) {
-    report.warnings.push("Knoway couldn't tell the article apart from the rest of the page, so it kept the page's whole main section.");
+    report.warnings.push("Knowbel couldn't tell the article apart from the rest of the page, so it kept the page's whole main section.");
   }
   aborted();
 
@@ -268,6 +268,6 @@ export async function convertArticle(
   progress({ stage: "layout" });
   const { book, chapter } = buildArticleBook({ meta, sourceUrl: options.sourceUrl, fetchedAt: options.fetchedAt, content, files });
   const docId = await contentHash(chapter, files);
-  const { pdf } = await convertBookToPdf(book, { producer: "Knoway Reader (from a web page)" });
+  const { pdf } = await convertBookToPdf(book, { producer: "Knowbel Reader (from a web page)" });
   return { pdf, docId, meta, report };
 }

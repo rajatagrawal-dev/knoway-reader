@@ -464,7 +464,7 @@ export default function App() {
 
   // The file name lives in the window title now that there's no top bar.
   useEffect(() => {
-    const title = loadedPdf ? `${loadedPdf.title} — Knoway Reader` : "Knoway Reader";
+    const title = loadedPdf ? `${loadedPdf.title} — Knowbel Reader` : "Knowbel Reader";
     document.title = title;
     if ("__TAURI_INTERNALS__" in window) {
       import("@tauri-apps/api/window")

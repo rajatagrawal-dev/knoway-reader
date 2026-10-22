@@ -18,7 +18,7 @@ export function serverFetcher(): WebFetcher {
         response = await fetch(endpoint({ url, purpose, ...(referer ? { referer } : {}) }), { signal });
       } catch (error) {
         if (signal?.aborted) throw error;
-        throw new WebImportError("Couldn't reach Knoway's server to fetch the page.");
+        throw new WebImportError("Couldn't reach Knowbel's server to fetch the page.");
       }
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string };

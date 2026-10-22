@@ -1,6 +1,6 @@
-# Knoway Reader
+# Knowbel Reader
 
-Knoway Reader is a PDF and EPUB reader for studying dense documents: textbooks,
+Knowbel Reader is a PDF and EPUB reader for studying dense documents: textbooks,
 papers, lecture notes, and articles saved from the web. It does everything you'd expect for highlighting and
 note-taking, and adds an AI study layer. You can select a passage and "deep
 dive" into it, ask questions about the whole document, and build a glossary of
@@ -174,7 +174,7 @@ How the packaged app differs from the browser version:
   ship inside the bundle, don't distribute a build made with your personal
   `.env`.
 - **It stores data as plain files.** Your library and notes go in the app data
-  folder (on macOS, `~/Library/Application Support/com.knowayreader.app/library/`),
+  folder (on macOS, `~/Library/Application Support/com.knowbelreader.app/library/`),
   one folder per document. The browser version uses IndexedDB instead.
 
 ## Scripts

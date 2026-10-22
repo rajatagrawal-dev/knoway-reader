@@ -91,8 +91,8 @@ export async function writePdf(input: WritePdfInput): Promise<Uint8Array> {
   if (input.title) pdf.setTitle(input.title);
   if (input.authors.length > 0) pdf.setAuthor(input.authors.join(", "));
   if (input.language) pdf.setLanguage(input.language);
-  pdf.setCreator("Knoway Reader");
-  pdf.setProducer(input.producer ?? "Knoway Reader (from EPUB)");
+  pdf.setCreator("Knowbel Reader");
+  pdf.setProducer(input.producer ?? "Knowbel Reader (from EPUB)");
 
   // ---- Fonts: embedded (subset) on first use ----
   const embedded = new Map<FontName, { font: PDFFont; glyphs: Set<number> }>();

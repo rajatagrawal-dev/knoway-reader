@@ -121,7 +121,7 @@ export async function addFromUrl(storage: LibraryStorage, input: string, options
   } else if (kind === "image") {
     throw new WebImportError("That address is a picture, not a page.");
   } else {
-    throw new WebImportError(`Knoway can't read this kind of file (${resource.contentType.split(";")[0] || "unknown type"}).`);
+    throw new WebImportError(`Knowbel can't read this kind of file (${resource.contentType.split(";")[0] || "unknown type"}).`);
   }
 
   const { readPage, convertArticle } = await import("./convert");
